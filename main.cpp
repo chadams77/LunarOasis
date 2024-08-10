@@ -70,9 +70,9 @@ const uint64_t ROCKS[] = {
 };
 const int N_ROCKS = 9;
 
-uint64_t EX_HUGE = SPR(128+16, 0, 32, 32);
-uint64_t EX_BIG = SPR(128, 0, 16, 16);
-uint64_t EX_SMALL = SPR(128, 16, 16, 16);
+const uint64_t EX_HUGE = SPR(128+16, 0, 32, 32);
+const uint64_t EX_BIG = SPR(128, 0, 16, 16);
+const uint64_t EX_SMALL = SPR(128, 16, 16, 16);
 
 const uint64_t SHIP_OFF[] = {
     SPR(0*16, 3*16, 16, 16),
@@ -94,6 +94,7 @@ const uint64_t SHIP_ON[] = {
     SPR(5*16, 4*16, 16, 16),
     SPR(7*16, 4*16, 16, 16)
 };
+const uint64_t SHIP_LANDED = SPR(0*16, 5*16, 16, 16);
 const uint64_t BG_SPR[] = {
     SPR(176, 0, 64, 64),
     SPR(256, 0, 64, 64)
@@ -753,10 +754,15 @@ int main() {
         terrainRender(camX, camY);
 
         if (!playerDead) {
+            bool landed = false;
+            bool landingClose = (int)(floor(playerAngle)) == 0 && sprCollideTerrain(SHIP_OFF[0], (int)round(playerX) - 8, (int)round(playerY) - 8 + 3) && !upDown;
             bool justDied = false;
-            if ((int)(floor(playerAngle)) == 0 && sprCollideTerrain(SHIP_OFF[0], (int)round(playerX) - 8, (int)round(playerY) - 8 + 1) && !upDown) {
-                if (fabs(playerVY) > 5.f || fabs(playerVX) > 8.f) {
+            if ((int)(floor(playerAngle)) == 0 && sprCollideTerrain(SHIP_OFF[0], (int)round(playerX) - 8, (int)round(playerY) - 8 + 2) && !upDown) {
+                if (fabs(playerVY) > 6.f || fabs(playerVX) > 9.f) {
                     justDied = true;
+                }
+                else {
+                    landed = true;
                 }
                 playerVX = 0.f;
                 playerVY = 0.f;
@@ -767,13 +773,19 @@ int main() {
                 justDied = true;
             }
 
+
             if (upDown) {
                 drawSpr(SHIP_ON[(int)(floor(playerAngle))], (int)round(playerX) - camX + 32-8, (int)round(playerY) - camY + 32-8);
                 float angle = (floorf(playerAngle) / 8.f) * PI * 2.f + PI * 0.5f;
                 addFire(playerX + cos(angle) * 3.5f, playerY + sin(angle) * 3.5f, cos(angle) * 20.f, sin(angle) * 20.f);
             }
             else {
-                drawSpr(SHIP_OFF[(int)(floor(playerAngle))], (int)round(playerX) - camX + 32-8, (int)round(playerY) - camY + 32-8);
+                if (landed || landingClose) {
+                    drawSpr(SHIP_LANDED, (int)round(playerX) - camX + 32-8, (int)round(playerY) - camY + 32-8);
+                }
+                else {
+                    drawSpr(SHIP_OFF[(int)(floor(playerAngle))], (int)round(playerX) - camX + 32-8, (int)round(playerY) - camY + 32-8);
+                }
             }
 
             if (justDied) {
