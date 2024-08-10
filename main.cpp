@@ -16,6 +16,9 @@
 #define SPR_Y(_C) ((int)(((_C)>>10ul)&1023ul))
 #define SPR_W(_C) ((int)(((_C)>>20ul)&1023ul))
 #define SPR_H(_C) ((int)(((_C)>>30ul)&1023ul))
+#define PI 3.14159265359f
+
+#define PLAYER_THRUST 15.f
 
 using namespace sf;
 using std::cerr;
@@ -33,6 +36,8 @@ Texture * spritesTex = NULL;
 const uint32_t * sprBfr;
 uint16_t * terrainBfr;
 
+float playerX, playerY, playerVX, playerVY, playerAngle;
+
 /* SPRITES */
 const uint64_t ROCKS[] = {
     SPR(83, 5, 9, 9),
@@ -48,24 +53,24 @@ const uint64_t ROCKS[] = {
 const int N_ROCKS = 9;
 
 const uint64_t SHIP_OFF[] = {
-    SPR(0, 0, 4, 9),
-    SPR(42, 0, 6, 6),
-    SPR(31, 10, 9, 4),
-    SPR(41, 13, 6, 6),
-    SPR(10, 0, 4, 9),
-    SPR(58, 13, 6, 6),
-    SPR(10, 10, 9, 4),
-    SPR(59, 0, 6, 6)
+    SPR(0*16, 3*16, 16, 16),
+    SPR(2*16, 3*16, 16, 16),
+    SPR(4*16, 3*16, 16, 16),
+    SPR(6*16, 3*16, 16, 16),
+    SPR(0*16, 4*16, 16, 16),
+    SPR(2*16, 4*16, 16, 16),
+    SPR(4*16, 4*16, 16, 16),
+    SPR(6*16, 4*16, 16, 16)
 };
 const uint64_t SHIP_ON[] = {
-    SPR(5, 0, 4, 9),
-    SPR(49, 0, 9, 9),
-    SPR(20, 20, 9, 4),
-    SPR(48, 10, 9, 9),
-    SPR(15, 0, 4, 9),
-    SPR(68, 10, 9, 9),
-    SPR(0, 10, 9, 4),
-    SPR(6, 0, 9, 9)
+    SPR(1*16, 3*16, 16, 16),
+    SPR(3*16, 3*16, 16, 16),
+    SPR(5*16, 3*16, 16, 16),
+    SPR(7*16, 3*16, 16, 16),
+    SPR(1*16, 4*16, 16, 16),
+    SPR(3*16, 4*16, 16, 16),
+    SPR(5*16, 4*16, 16, 16),
+    SPR(7*16, 4*16, 16, 16)
 };
 const uint64_t BG_SPR[] = {
     SPR(176, 0, 64, 64),
@@ -80,6 +85,7 @@ uint32_t PAL_RED[9],
          PAL_GREY[9];
 
 const uint64_t LEVEL_BG_1 = BG_SPR[0];
+const int LEVEL_START_X_1 = 4, LEVEL_START_Y_1 = 2;
 const uint8_t LEVEL_GRID_1[] = {
     0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
     0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
@@ -152,6 +158,12 @@ const uint8_t* LEVELS[] = {
 };
 const uint64_t LEVEL_BG[] = {
     LEVEL_BG_1
+};
+const int LEVEL_START_X[] {
+    LEVEL_START_X_1
+};
+const int LEVEL_START_Y[] {
+    LEVEL_START_Y_1
 };
 const int N_LEVELS = 1;
 
@@ -244,7 +256,10 @@ void drawSpr(int _sx, int _sy, int _w, int _h, int dx, int dy) {
             if ((x+dx) < 0 || (x+dx) > 63) {
                 continue;
             }
-            it[dx+x] = its[x+_sx];
+            uint64_t clr = its[x+_sx];
+            if (((clr>>24)&0xFF) > 0) {
+                it[dx+x] = clr;
+            }
         }
         it += 64; its += 1024;
     }
@@ -348,9 +363,24 @@ void initLevel(int _levelNo) {
 
     const uint8_t * grid = LEVELS[idx];
 
-    for (int i=0; i<32768; i++) {
+    srand(_levelNo * 100);
+
+    int tnz = 0;
+    for (int x=0; x<64; x++) {
+        for (int y=0; y<64; y++) {
+            if (grid[x+(y<<6)] > 0) {
+                tnz += 1;
+            }
+        }
+    }
+
+    for (int i=0; i<(tnz<<5); i++) {
         int cx = rand()&511,
             cy = rand()&511;
+        if (grid[(cx>>3)+((cy>>3)<<6)] == 0) {
+            i --;
+            continue;
+        }
         uint64_t spr = ROCKS[rand()%N_ROCKS];
         int w = SPR_W(spr),
             h = SPR_H(spr);
@@ -378,6 +408,12 @@ void initLevel(int _levelNo) {
             terrainAdd(spr, cx, cy, 128);
         }
     }
+
+    playerX = (float)(LEVEL_START_X[idx] * 8 + 4);
+    playerY = (float)(LEVEL_START_Y[idx] * 8 + 4);
+    playerVX = 0.f;
+    playerVY = 0.f;
+    playerAngle = 0.f;
 }
 
 int main() {
@@ -395,7 +431,7 @@ int main() {
 
     bfr64 = new uint8_t[64*64*4];
 
-    clearBfr(0xFF0000FF);
+    clearBfr();
 
     tex64->update(bfr64);
 
@@ -425,8 +461,12 @@ int main() {
     initLevel(1);
 
     double time = 0.;
+
+    bool leftDown = false, rightDown = false, upDown = false, downDown = false, bombDown = false;
+    bool leftPressed = false, rightPressed = false, upPressed = false, downPressed = false, bombPressed = false;
     
     while (window->isOpen()) {
+        leftPressed = false; rightPressed = false; upPressed = false; downPressed = false; bombPressed = false;
         Event event;
         while (window->pollEvent(event)) {
             if (event.type == Event::Closed) {
@@ -434,6 +474,23 @@ int main() {
             }
             else if (event.type == Event::Resized) {
 	            window->setView(View(FloatRect(0.f, 0.f, (float)window->getSize().x, (float)window->getSize().y)));
+            }
+            else if (event.type == Event::KeyPressed) {
+                if (event.key.code == Keyboard::Key::Left || event.key.code == Keyboard::Key::A) {
+                    leftDown = true;
+                }
+                else if (event.key.code == Keyboard::Key::Right || event.key.code == Keyboard::Key::D) {
+                    rightDown = true;
+                }
+                if (event.key.code == Keyboard::Key::Up || event.key.code == Keyboard::Key::W) {
+                    upDown = true;
+                }
+                else if (event.key.code == Keyboard::Key::Down || event.key.code == Keyboard::Key::S) {
+                    downDown = true;
+                }
+                else if (event.key.code == Keyboard::Key::Space || event.key.code == Keyboard::Key::X) {
+                    bombDown = true;
+                }
             }
             else if (event.type == Event::KeyReleased) {
                 if (event.key.code == Keyboard::Key::F11) {
@@ -443,8 +500,31 @@ int main() {
                     window->setFramerateLimit(60);
 	                window->setView(View(FloatRect(0.f, 0.f, (float)window->getSize().x, (float)window->getSize().y)));
                 }
+                else if (event.key.code == Keyboard::Key::Left || event.key.code == Keyboard::Key::A) {
+                    leftDown = false;
+                    leftPressed = true;
+                }
+                else if (event.key.code == Keyboard::Key::Right || event.key.code == Keyboard::Key::D) {
+                    rightDown = false;
+                    rightPressed = true;
+                }
+                if (event.key.code == Keyboard::Key::Up || event.key.code == Keyboard::Key::W) {
+                    upDown = false;
+                    upPressed = true;
+                }
+                else if (event.key.code == Keyboard::Key::Down || event.key.code == Keyboard::Key::S) {
+                    downDown = false;
+                    downPressed = true;
+                }
+                else if (event.key.code == Keyboard::Key::Space || event.key.code == Keyboard::Key::X) {
+                    bombDown = false;
+                    bombPressed = true;
+                }
             }
         }
+
+        double dt = 1. / 60.;
+        time += dt;
 
         clearBfr();
 
@@ -452,9 +532,33 @@ int main() {
 
         drawSpr(LEVEL_BG[curLevel-1], 0, 0);
 
-        terrainRender(32, 32);
+        if (upDown) {
+            float angle = (floorf(playerAngle) / 8.f) * PI * 2.f - PI * 0.5f;
+            playerVX += cos(angle) * dt * PLAYER_THRUST;
+            playerVY += sin(angle) * dt * PLAYER_THRUST;
+        }
+        if (leftDown) {
+            playerAngle -= dt * 4.5f;
+        }
+        if (rightDown) {
+            playerAngle += dt * 4.5f;
+        }
+        playerAngle = fmodf(playerAngle + 8.f * 100.f, 8.f);
 
-        drawSpr(SHIP_ON[0], 24, 24);
+        playerVX -= playerVX * dt * 0.25f;
+        playerVY -= playerVY * dt * 0.25f;
+        playerVY += dt * 3.f;
+        playerX += playerVX * dt;
+        playerY += playerVY * dt;
+
+        terrainRender((int)round(playerX), (int)round(playerY));
+
+        if (upDown) {
+            drawSpr(SHIP_ON[(int)(floor(playerAngle))], 32-8, 32-8);
+        }
+        else {
+            drawSpr(SHIP_OFF[(int)(floor(playerAngle))], 32-8, 32-8);
+        }
 
         //
 
@@ -474,10 +578,6 @@ int main() {
         spr64->setScale(Vector2f(scale, scale));
 
         window->draw(*spr64);
-
-        double dt = 1. / 60.;
-
-        time += dt;
 
         window->display();
     }
