@@ -37,6 +37,7 @@ struct prtType {
     float energy;
     float mass;
     float life;
+    float shadef;
     prtType * next;
 };
 prtType ** phash;
@@ -68,6 +69,10 @@ const uint64_t ROCKS[] = {
     SPR(113, 34, 15, 13)
 };
 const int N_ROCKS = 9;
+
+uint64_t EX_HUGE = SPR(128+16, 0, 32, 32);
+uint64_t EX_BIG = SPR(128, 0, 16, 16);
+uint64_t EX_SMALL = SPR(128, 16, 16, 16);
 
 const uint64_t SHIP_OFF[] = {
     SPR(0*16, 3*16, 16, 16),
@@ -352,7 +357,7 @@ void terrainAdd(uint64_t spr, int cx, int cy, int z, int scale = 100) { // scale
             }
             uint32_t tclr = sprBfr[x - x1 + tx + ((y-y1+ty)<<10)];
             if (((tclr >> 24) & 0xFF) > 16u) {
-                uint16_t c1 = CLAMP(z + ((int)(tclr & 0xFF) * scale / 100), (uint16_t)0, (uint16_t)(0xFFFF));
+                uint16_t c1 = (uint16_t)(CLAMP(z + ((int)(tclr & 0xFF) * scale / 100), 0, 0xFFFF));
                 uint16_t * ptr = terrainBfr + x + (y<<10);
                 if (scale > 0) {
                     ptr[0] = MAX(ptr[0], c1);
@@ -421,10 +426,11 @@ void addParticle(prtType p) {
     }
 }
 
-void addFire(float x, float y, float xv, float yv, int cnt = 4) {
+void addFire(float x, float y, float xv, float yv, int cnt = 4, float lifef = 1.0f) {
     prtType p;
     p.pal = PAL_RED;
-    p.life = (float)((rand() & 0xF) + 32) / 16.f;
+    p.shadef = 1. / lifef;
+    p.life = lifef * (float)((rand() & 0xF) + 32) / 16.f;
     p.mass = 0.1f;
     p.energy = 10.f;
     p.x = x + (float)(rand() & 0xFF) / 255.f - 0.5f;
@@ -433,6 +439,15 @@ void addFire(float x, float y, float xv, float yv, int cnt = 4) {
     p.yv = yv;
     for (int i=0; i<cnt; i++) {
         addParticle(p);
+    }
+}
+
+void explosion(float x, float y, float xv, float yv, int cnt) {
+    float fs = (float)cnt / 256.f;
+    for (int k=0; k<cnt; k++) {
+        float vx = 3.f * ((float)(rand() & 0xFF) / 255.f - 0.5f);
+        float vy = 3.f * ((float)(rand() & 0xFF) / 255.f - 0.5f);
+        addFire(x + vx, y + vy, xv + vx * 15.f * fs, yv + vy * 50.f * fs, 4, 2.5f);
     }
 }
 
@@ -498,7 +513,7 @@ void updateRenderParticles(float dt, int cx, int cy) {
                 y = (int)floor(plist[i].y) - cy + 32;
             if (x >= 0 && y >= 0 && x < 64 && y < 64) {
                 int off = x + (y << 6);
-                bfr[off] = blend(bfr[off], (plist[i].pal[CLAMP((int)floor(plist[i].life * 3.), 1, 7)] & 0x00FFFFFF) | (CLAMP((uint32_t)floor(plist[i].life * 255.), 0, 255) << 24u));
+                bfr[off] = blend(bfr[off], (plist[i].pal[CLAMP((int)floor(plist[i].life * plist[i].shadef * 3.), 1, 7)] & 0x00FFFFFF) | (CLAMP((uint32_t)floor(plist[i].life * 255.), 0, 255) << 24u));
             }
             int hx = (int)floor(plist[i].x), hy = (int)floor(plist[i].y);
             if (hx < 0 || hy < 0 || hx >= 512 || hy >= 512) {
@@ -740,7 +755,7 @@ int main() {
         if (!playerDead) {
             bool justDied = false;
             if ((int)(floor(playerAngle)) == 0 && sprCollideTerrain(SHIP_OFF[0], (int)round(playerX) - 8, (int)round(playerY) - 8 + 1) && !upDown) {
-                if (fabs(playerVY) > 5.f) {
+                if (fabs(playerVY) > 5.f || fabs(playerVX) > 8.f) {
                     justDied = true;
                 }
                 playerVX = 0.f;
@@ -762,11 +777,8 @@ int main() {
             }
 
             if (justDied) {
-                for (int k=0; k<256; k++) {
-                    float vx = 3.f * ((float)(rand() & 0xFF) / 255.f - 0.5f);
-                    float vy = 3.f * ((float)(rand() & 0xFF) / 255.f - 0.5f);
-                    addFire(playerX + vx, playerY + vy, playerVX + vx * 15.f, playerVY + vy * 50.f);
-                }
+                explosion(playerX, playerY, playerVX, playerVY, 256);
+                terrainAdd(EX_BIG, (int)playerX, (int)playerY, 0, -400);
                 playerDead = true;
             }
         }
