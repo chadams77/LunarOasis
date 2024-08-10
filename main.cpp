@@ -18,7 +18,9 @@
 #define SPR_H(_C) ((int)(((_C)>>30ul)&1023ul))
 #define PI 3.14159265359f
 
-#define PLAYER_THRUST 15.f
+#define PLAYER_THRUST     15.f
+#define PLAYER_TURN_SPEED 4.5f
+#define GRAVITY           5.f
 
 using namespace sf;
 using std::cerr;
@@ -27,6 +29,18 @@ using std::endl;
 using std::vector;
 using std::map;
 using std::set;
+
+struct prtType {
+    float x, y, xv, yv;
+    uint32_t * pal;
+    float energy;
+    float mass;
+    float life;
+    prtType * next;
+};
+prtType ** phash;
+prtType * plist;
+const int MAX_PRT = 2048;
 
 RenderWindow * window = NULL;
 Texture * tex64 = NULL;
@@ -341,31 +355,16 @@ void terrainRender(int cx, int cy) {
                 tn0 = (tn0 * 2 + tn0x) / 3;
                 t0p = (t0p * 2 + t0px) / 3;
                 t0n = (t0n * 2 + t0nx) / 3;
+                int shade = 6;
                 if (t00 > 0) {
                     int l = t00;
-                    if (tp0 > tn0) {
-                        if (t00 > tn0) {
-                            l = (l + l/2) / 2;
-                        }
-                        else {
-                            l = (l + l/4) / 2;
-                        }
-                    }
-                    else {
-                        l = l + l / 5;
-                    }
-                    if (t0p < t0n) {
-                        if (t00 > t0n) {
-                            l = (l + l/2) / 2;
-                        }
-                        else {
-                            l = (l + l/4) / 2;
-                        }
-                    }
-                    else {
-                        l = l + l / 5;
-                    }
-                    it[sx] = PAL_GREY[CLAMP((l*9)>>8, 1, 8)];
+                    int xa = 2 * (tp0 - tn0),
+                        ya = 2 * (t0p - t0n),
+                        za = -4;
+                    int len = xa*xa+ya*ya+za*za;
+                    int dot = ((ya - za - xa) * 65535) / len;
+                    int shade = CLAMP(dot / 64 + 4, 2, 7);
+                    it[sx] = PAL_GREY[shade];
                 }
                 else if (tspecBfr[x+(y<<10)] == 1) {
                     it[sx] = blend(it[sx], (PAL_GREY[2] & 0x00FFFFFF) | 0x50000000);
@@ -376,11 +375,84 @@ void terrainRender(int cx, int cy) {
     }
 }
 
+void clearParticles() {
+    memset(plist, 0, sizeof(prtType) * MAX_PRT);
+    memset(phash, 0, sizeof(prtType*) * 512 * 512);
+}
+
+void addParticle(prtType p) {
+    for (int i=0; i<MAX_PRT; i++) {
+        if (plist[i].life <= 0.f) {
+            plist[i] = p;
+            plist[i].next = NULL;
+            return;
+        }
+    }
+}
+
+void addFire(float x, float y, float xv, float yv, int cnt = 4) {
+    prtType p;
+    p.pal = PAL_RED;
+    p.life = (float)((rand() & 0xF) + 32) / 16.f;
+    p.mass = 0.1f;
+    p.energy = 10.f;
+    p.x = x;
+    p.y = y;
+    p.xv = xv;
+    p.yv = yv;
+    for (int i=0; i<cnt; i++) {
+        addParticle(p);
+    }
+}
+
+void updateRenderParticles(float dt, int cx, int cy) {
+    memset(phash, 0, sizeof(prtType*) * 512 * 512);
+    for (int i=0; i<MAX_PRT; i++) {
+        if (plist[i].life > 0.f) {
+            int hx = (int)floor(plist[i].x), hy = (int)floor(plist[i].y);
+            int hi = hx + (hy << 9);
+            plist[i].next = phash[hi];
+            phash[hi] = plist + i;
+        }
+    }
+    for (int i=0; i<MAX_PRT; i++) {
+        if (plist[i].life > 0.f) {
+            plist[i].life -= dt;
+            if (plist[i].life < 0.f) {
+                plist[i].life = 0.f;
+            }
+            else {
+                plist[i].xv -= plist[i].xv * dt * 0.25f;
+                plist[i].yv -= plist[i].yv * dt * 0.25f;
+                plist[i].yv += dt * GRAVITY;
+            }
+        }
+    }
+    uint32_t * bfr = (uint32_t*)bfr64;
+    for (int i=0; i<MAX_PRT; i++) {
+        if (plist[i].life > 0.f) {
+            plist[i].x += plist[i].xv * dt;
+            plist[i].y += plist[i].yv * dt;
+            int x = (int)floor(plist[i].x) - cx + 32,
+                y = (int)floor(plist[i].y) - cy + 32;
+            if (x >= 0 && y >= 0 && x < 64 && y < 64) {
+                int off = x + (y << 6);
+                bfr[off] = blend(bfr[off], (plist[i].pal[CLAMP((int)floor(plist[i].life * 2.), 1, 5)] & 0x00FFFFFF) | (CLAMP((uint32_t)floor(plist[i].life * 255.), 0, 255) << 24u));
+            }
+            int hx = (int)floor(plist[i].x), hy = (int)floor(plist[i].y);
+            if (hx < 0 || hy < 0 || hx >= 512 || hy >= 512) {
+                plist[i].life = 0.f;
+            }
+        }
+    }
+}
+
 void initLevel(int _levelNo) {
     const int idx = _levelNo - 1;
     
     curLevel = _levelNo;
     terrainClear();
+    clearParticles();
 
     const uint8_t * grid = LEVELS[idx];
 
@@ -426,7 +498,7 @@ void initLevel(int _levelNo) {
             }
         }
         if (!any) {
-            terrainAdd(spr, cx, cy, 128);
+            terrainAdd(spr, cx, cy, 64 + (rand() & 63));
         }
     }
 
@@ -456,7 +528,10 @@ int main() {
     tex64->setSmooth(false);
 
     bfr64 = new uint8_t[64*64*4];
+    plist = new prtType[MAX_PRT];
+    phash = new prtType*[512*512];
 
+    clearParticles();
     clearBfr();
 
     tex64->update(bfr64);
@@ -565,26 +640,36 @@ int main() {
             playerVY += sin(angle) * dt * PLAYER_THRUST;
         }
         if (leftDown) {
-            playerAngle -= dt * 4.5f;
+            playerAngle -= dt * PLAYER_TURN_SPEED;
         }
         if (rightDown) {
-            playerAngle += dt * 4.5f;
+            playerAngle += dt * PLAYER_TURN_SPEED;
         }
         playerAngle = fmodf(playerAngle + 8.f * 100.f, 8.f);
 
         playerVX -= playerVX * dt * 0.25f;
         playerVY -= playerVY * dt * 0.25f;
-        playerVY += dt * 3.f;
+        playerVY += dt * GRAVITY;
         playerX += playerVX * dt;
         playerY += playerVY * dt;
 
-        terrainRender((int)round(playerX), (int)round(playerY));
+        int camX = (int)round(playerX),
+            camY = (int)round(playerY);
+
+        camX = CLAMP(camX, 32, 512 - 32);
+        camY = CLAMP(camY, 32, 512 - 32);
+
+        updateRenderParticles(dt, camX, camY);
+
+        terrainRender(camX, camY);
 
         if (upDown) {
-            drawSpr(SHIP_ON[(int)(floor(playerAngle))], 32-8, 32-8);
+            drawSpr(SHIP_ON[(int)(floor(playerAngle))], (int)round(playerX) - camX + 32-8, (int)round(playerY) - camY + 32-8);
+            float angle = (floorf(playerAngle) / 8.f) * PI * 2.f + PI * 0.5f;
+            addFire(playerX + cos(angle) * 3.5f, playerY + sin(angle) * 3.5f, cos(angle) * 20.f, sin(angle) * 20.f);
         }
         else {
-            drawSpr(SHIP_OFF[(int)(floor(playerAngle))], 32-8, 32-8);
+            drawSpr(SHIP_OFF[(int)(floor(playerAngle))], (int)round(playerX) - camX + 32-8, (int)round(playerY) - camY + 32-8);
         }
 
         //
@@ -609,6 +694,8 @@ int main() {
         window->display();
     }
 
+    delete plist;
+    delete phash;
     delete terrainBfr;
     delete tspecBfr;
     delete sprBfr;
