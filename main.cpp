@@ -34,7 +34,8 @@ Sprite * spr64 = NULL;
 uint8_t * bfr64 = NULL;
 Texture * spritesTex = NULL;
 const uint32_t * sprBfr;
-uint16_t * terrainBfr;
+uint16_t * terrainBfr = NULL;
+uint8_t * tspecBfr = NULL;
 
 float playerX, playerY, playerVX, playerVY, playerAngle;
 
@@ -192,6 +193,22 @@ void clearBfr(uint32_t clr = 0xFF000000) {
     }
 }
 
+static uint32_t blend(uint32_t bg, uint32_t clr) {
+    int a = (bg >> 24) & 0xFF,
+        r = (bg) & 0XFF,
+        g = (bg >> 8) & 0xFF,
+        b = (bg >> 16) & 0xFF;
+    int ca = (clr >> 24) & 0xFF,
+        cr = (clr) & 0XFF,
+        cg = (clr >> 8) & 0xFF,
+        cb = (clr >> 16) & 0xFF;
+    a = CLAMP(a + ca, 0, 255);
+    r = CLAMP(((r * (255 - ca)) >> 8) + ((cr * ca) >> 8), 0, 255);
+    g = CLAMP(((g * (255 - ca)) >> 8) + ((cg * ca) >> 8), 0, 255);
+    b = CLAMP(((b * (255 - ca)) >> 8) + ((cb * ca) >> 8), 0, 255);
+    return (uint32_t)((((uint32_t)a) << 24u) | ((uint32_t)r) | (((uint32_t)g) << 8u) | (((uint32_t)b) << 16u));
+}
+
 void drawBox(int _x1, int _y1, int _w, int _h, uint32_t clr) {
     if (_x1 >= 64 || _y1 >= 64 || _w <= 0 || _h <= 0 || (_x1 + _w) <= 0 || (_y1 + _h) <= 0) {
         return;
@@ -258,7 +275,7 @@ void drawSpr(int _sx, int _sy, int _w, int _h, int dx, int dy) {
             }
             uint64_t clr = its[x+_sx];
             if (((clr>>24)&0xFF) > 0) {
-                it[dx+x] = clr;
+                it[dx+x] = blend(it[dx+x], clr);
             }
         }
         it += 64; its += 1024;
@@ -271,6 +288,7 @@ void drawSpr(uint64_t code, int x, int y) {
 
 void terrainClear() {
     memset((char *)terrainBfr, 0, sizeof(uint16_t) << 20);
+    memset((char *)tspecBfr, 0, sizeof(uint8_t) << 20);
 }
 
 void terrainAdd(uint64_t spr, int cx, int cy, int z, int scale = 100) { // scale = f * 100
@@ -349,6 +367,9 @@ void terrainRender(int cx, int cy) {
                     }
                     it[sx] = PAL_GREY[CLAMP((l*9)>>8, 1, 8)];
                 }
+                else if (tspecBfr[x+(y<<10)] == 1) {
+                    it[sx] = blend(it[sx], (PAL_GREY[2] & 0x00FFFFFF) | 0x50000000);
+                }
             }
         }
         it += 64;
@@ -409,6 +430,11 @@ void initLevel(int _levelNo) {
         }
     }
 
+    for (int i=0; i<((1024<<10)>>7); i++) {
+        long j = (long)((rand() << 15l) + rand()) & ((1l << 20l)-1l);
+        tspecBfr[j] = 1;
+    }
+
     playerX = (float)(LEVEL_START_X[idx] * 8 + 4);
     playerY = (float)(LEVEL_START_Y[idx] * 8 + 4);
     playerVX = 0.f;
@@ -457,6 +483,7 @@ int main() {
     }
 
     terrainBfr = new uint16_t[1024*1024];
+    tspecBfr = new uint8_t[1024*1024];
 
     initLevel(1);
 
@@ -583,6 +610,7 @@ int main() {
     }
 
     delete terrainBfr;
+    delete tspecBfr;
     delete sprBfr;
     delete spritesTex;
     delete bfr64;
