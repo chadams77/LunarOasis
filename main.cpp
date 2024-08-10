@@ -53,6 +53,7 @@ uint16_t * terrainBfr = NULL;
 uint8_t * tspecBfr = NULL;
 
 float playerX, playerY, playerVX, playerVY, playerAngle;
+bool playerDead;
 
 /* SPRITES */
 const uint64_t ROCKS[] = {
@@ -301,6 +302,34 @@ void drawSpr(uint64_t code, int x, int y) {
     drawSpr(SPR_X(code), SPR_Y(code), SPR_W(code), SPR_H(code), x, y);
 }
 
+bool sprCollideTerrain(int _sx, int _sy, int _w, int _h, int dx, int dy) {
+    uint16_t * it = (uint16_t*)terrainBfr + (dy << 10);
+    uint32_t * its = (uint32_t*)sprBfr + (_sy << 10);
+    for (int y=0; y<_h; y++) {
+        if ((y+dy) < 0 || (y+dy) > 511) {
+            it += 1024; its += 1024;
+            continue;
+        }
+        for (int x=0; x<_w; x++) {
+            if ((x+dx) < 0 || (x+dx) > 511) {
+                continue;
+            }
+            uint64_t clr = its[x+_sx];
+            if (((clr>>24)&0xFF) > 0) {
+                if (it[dx+x] > 0) {
+                    return true;
+                }
+            }
+        }
+        it += 1024; its += 1024;
+    }
+    return false;
+}
+
+bool sprCollideTerrain(uint64_t code, int x, int y) {
+    return sprCollideTerrain(SPR_X(code), SPR_Y(code), SPR_W(code), SPR_H(code), x, y);
+}
+
 void terrainClear() {
     memset((char *)terrainBfr, 0, sizeof(uint16_t) << 20);
     memset((char *)tspecBfr, 0, sizeof(uint8_t) << 20);
@@ -469,7 +498,7 @@ void updateRenderParticles(float dt, int cx, int cy) {
                 y = (int)floor(plist[i].y) - cy + 32;
             if (x >= 0 && y >= 0 && x < 64 && y < 64) {
                 int off = x + (y << 6);
-                bfr[off] = blend(bfr[off], (plist[i].pal[CLAMP((int)floor(plist[i].life * 2.), 1, 6)] & 0x00FFFFFF) | (CLAMP((uint32_t)floor(plist[i].life * 255.), 0, 255) << 24u));
+                bfr[off] = blend(bfr[off], (plist[i].pal[CLAMP((int)floor(plist[i].life * 3.), 1, 7)] & 0x00FFFFFF) | (CLAMP((uint32_t)floor(plist[i].life * 255.), 0, 255) << 24u));
             }
             int hx = (int)floor(plist[i].x), hy = (int)floor(plist[i].y);
             if (hx < 0 || hy < 0 || hx >= 512 || hy >= 512) {
@@ -554,6 +583,7 @@ void initLevel(int _levelNo) {
     playerVX = 0.f;
     playerVY = 0.f;
     playerAngle = 0.f;
+    playerDead = false;
 }
 
 int main() {
@@ -676,24 +706,26 @@ int main() {
 
         drawSpr(LEVEL_BG[curLevel-1], 0, 0);
 
-        if (upDown) {
-            float angle = (floorf(playerAngle) / 8.f) * PI * 2.f - PI * 0.5f;
-            playerVX += cos(angle) * dt * PLAYER_THRUST;
-            playerVY += sin(angle) * dt * PLAYER_THRUST;
-        }
-        if (leftDown) {
-            playerAngle -= dt * PLAYER_TURN_SPEED;
-        }
-        if (rightDown) {
-            playerAngle += dt * PLAYER_TURN_SPEED;
-        }
-        playerAngle = fmodf(playerAngle + 8.f * 100.f, 8.f);
+        if (!playerDead) {
+            if (upDown) {
+                float angle = (floorf(playerAngle) / 8.f) * PI * 2.f - PI * 0.5f;
+                playerVX += cos(angle) * dt * PLAYER_THRUST;
+                playerVY += sin(angle) * dt * PLAYER_THRUST;
+            }
+            if (leftDown) {
+                playerAngle -= dt * PLAYER_TURN_SPEED;
+            }
+            if (rightDown) {
+                playerAngle += dt * PLAYER_TURN_SPEED;
+            }
+            playerAngle = fmodf(playerAngle + 8.f * 100.f, 8.f);
 
-        playerVX -= playerVX * dt * 0.25f;
-        playerVY -= playerVY * dt * 0.25f;
-        playerVY += dt * GRAVITY;
-        playerX += playerVX * dt;
-        playerY += playerVY * dt;
+            playerVX -= playerVX * dt * 0.25f;
+            playerVY -= playerVY * dt * 0.25f;
+            playerVY += dt * GRAVITY;
+            playerX += playerVX * dt;
+            playerY += playerVY * dt;
+        }
 
         int camX = (int)round(playerX),
             camY = (int)round(playerY);
@@ -705,13 +737,38 @@ int main() {
 
         terrainRender(camX, camY);
 
-        if (upDown) {
-            drawSpr(SHIP_ON[(int)(floor(playerAngle))], (int)round(playerX) - camX + 32-8, (int)round(playerY) - camY + 32-8);
-            float angle = (floorf(playerAngle) / 8.f) * PI * 2.f + PI * 0.5f;
-            addFire(playerX + cos(angle) * 3.5f, playerY + sin(angle) * 3.5f, cos(angle) * 20.f, sin(angle) * 20.f);
-        }
-        else {
-            drawSpr(SHIP_OFF[(int)(floor(playerAngle))], (int)round(playerX) - camX + 32-8, (int)round(playerY) - camY + 32-8);
+        if (!playerDead) {
+            bool justDied = false;
+            if ((int)(floor(playerAngle)) == 0 && sprCollideTerrain(SHIP_OFF[0], (int)round(playerX) - 8, (int)round(playerY) - 8 + 1) && !upDown) {
+                if (fabs(playerVY) > 5.f) {
+                    justDied = true;
+                }
+                playerVX = 0.f;
+                playerVY = 0.f;
+                playerX = round(playerX);
+                playerY = round(playerY);
+            }
+            if (sprCollideTerrain(SHIP_OFF[(int)(floor(playerAngle))], (int)round(playerX) - 8, (int)round(playerY) - 8)) {
+                justDied = true;
+            }
+
+            if (upDown) {
+                drawSpr(SHIP_ON[(int)(floor(playerAngle))], (int)round(playerX) - camX + 32-8, (int)round(playerY) - camY + 32-8);
+                float angle = (floorf(playerAngle) / 8.f) * PI * 2.f + PI * 0.5f;
+                addFire(playerX + cos(angle) * 3.5f, playerY + sin(angle) * 3.5f, cos(angle) * 20.f, sin(angle) * 20.f);
+            }
+            else {
+                drawSpr(SHIP_OFF[(int)(floor(playerAngle))], (int)round(playerX) - camX + 32-8, (int)round(playerY) - camY + 32-8);
+            }
+
+            if (justDied) {
+                for (int k=0; k<256; k++) {
+                    float vx = 3.f * ((float)(rand() & 0xFF) / 255.f - 0.5f);
+                    float vy = 3.f * ((float)(rand() & 0xFF) / 255.f - 0.5f);
+                    addFire(playerX + vx, playerY + vy, playerVX + vx * 15.f, playerVY + vy * 50.f);
+                }
+                playerDead = true;
+            }
         }
 
         //
