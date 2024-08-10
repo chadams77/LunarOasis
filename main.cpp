@@ -31,6 +31,7 @@ using std::map;
 using std::set;
 
 struct prtType {
+    int id;
     float x, y, xv, yv;
     uint32_t * pal;
     float energy;
@@ -385,6 +386,7 @@ void addParticle(prtType p) {
         if (plist[i].life <= 0.f) {
             plist[i] = p;
             plist[i].next = NULL;
+            plist[i].id = i;
             return;
         }
     }
@@ -396,8 +398,8 @@ void addFire(float x, float y, float xv, float yv, int cnt = 4) {
     p.life = (float)((rand() & 0xF) + 32) / 16.f;
     p.mass = 0.1f;
     p.energy = 10.f;
-    p.x = x;
-    p.y = y;
+    p.x = x + (float)(rand() & 0xFF) / 255.f - 0.5f;
+    p.y = y + (float)(rand() & 0xFF) / 255.f - 0.5f;
     p.xv = xv;
     p.yv = yv;
     for (int i=0; i<cnt; i++) {
@@ -408,11 +410,14 @@ void addFire(float x, float y, float xv, float yv, int cnt = 4) {
 void updateRenderParticles(float dt, int cx, int cy) {
     memset(phash, 0, sizeof(prtType*) * 512 * 512);
     for (int i=0; i<MAX_PRT; i++) {
+        plist[i].next = NULL;
         if (plist[i].life > 0.f) {
             int hx = (int)floor(plist[i].x), hy = (int)floor(plist[i].y);
-            int hi = hx + (hy << 9);
-            plist[i].next = phash[hi];
-            phash[hi] = plist + i;
+            if (hx >= 0 && hy >= 0 && hx < 512 && hy < 512) {
+                int hi = hx + (hy << 9);
+                plist[i].next = phash[hi];
+                phash[hi] = plist + i;
+            }
         }
     }
     for (int i=0; i<MAX_PRT; i++) {
@@ -425,23 +430,60 @@ void updateRenderParticles(float dt, int cx, int cy) {
                 plist[i].xv -= plist[i].xv * dt * 0.25f;
                 plist[i].yv -= plist[i].yv * dt * 0.25f;
                 plist[i].yv += dt * GRAVITY;
+                int hx = (int)floor(plist[i].x), hy = (int)floor(plist[i].y);
+                for (int x=hx-1; x<=hx+1; x++) {
+                    for (int y=hy-1; y<=hy+1; y++) {
+                        if (x>=0 && y>=0 && x<512 && y<512) {
+                            prtType * n = phash[x+(y<<9)];
+                            while (n != NULL) {
+                                if (n->id != plist[i].id) {
+                                    double dx = plist[i].x - n->x,
+                                           dy = plist[i].y - n->y;
+                                    double m1 = plist[i].mass, m2 = n->mass;
+                                    double len = sqrt(dx*dx+dy*dy) + 0.1;
+                                    dx /= len;
+                                    dy /= len;
+                                    if (len < 1.) {
+                                        double force = pow(1. / len, 3.);
+                                        plist[i].xv += dx * force * (m2 / (m1 + m2)) * dt;
+                                        plist[i].yv += dy * force * (m2 / (m1 + m2)) * dt;
+                                        n->xv -= dx * force * (m1 / (m1 + m2)) * dt;
+                                        n->yv -= dy * force * (m1 / (m1 + m2)) * dt;
+                                    }
+                                }
+                                n = n->next;
+                            }
+                        }
+                    }
+                }
             }
         }
     }
     uint32_t * bfr = (uint32_t*)bfr64;
     for (int i=0; i<MAX_PRT; i++) {
         if (plist[i].life > 0.f) {
+            float ox = plist[i].x, oy = plist[i].y;
             plist[i].x += plist[i].xv * dt;
             plist[i].y += plist[i].yv * dt;
             int x = (int)floor(plist[i].x) - cx + 32,
                 y = (int)floor(plist[i].y) - cy + 32;
             if (x >= 0 && y >= 0 && x < 64 && y < 64) {
                 int off = x + (y << 6);
-                bfr[off] = blend(bfr[off], (plist[i].pal[CLAMP((int)floor(plist[i].life * 2.), 1, 5)] & 0x00FFFFFF) | (CLAMP((uint32_t)floor(plist[i].life * 255.), 0, 255) << 24u));
+                bfr[off] = blend(bfr[off], (plist[i].pal[CLAMP((int)floor(plist[i].life * 2.), 1, 6)] & 0x00FFFFFF) | (CLAMP((uint32_t)floor(plist[i].life * 255.), 0, 255) << 24u));
             }
             int hx = (int)floor(plist[i].x), hy = (int)floor(plist[i].y);
             if (hx < 0 || hy < 0 || hx >= 512 || hy >= 512) {
                 plist[i].life = 0.f;
+            }
+            else if (terrainBfr[hx + (hy << 10)] > 0) {
+                plist[i].x = ox;
+                plist[i].y = oy;
+                if (fabs(plist[i].yv) > fabs(plist[i].xv)) {
+                    plist[i].yv = -plist[i].yv * 0.5f;
+                }
+                else {
+                    plist[i].xv = -plist[i].xv * 0.5f;
+                }
             }
         }
     }
