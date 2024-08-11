@@ -18,9 +18,10 @@
 #define SPR_H(_C) ((int)(((_C)>>30ul)&1023ul))
 #define PI 3.14159265359f
 
-#define PLAYER_THRUST     15.f
-#define PLAYER_TURN_SPEED 4.5f
-#define GRAVITY           6.5f
+#define PLAYER_THRUST      15.f
+#define PLAYER_TURN_SPEED  4.5f
+#define GRAVITY            6.5f
+#define FUEL_TANK_CAPACITY 20.f
 
 using namespace sf;
 using std::cerr;
@@ -123,6 +124,8 @@ const uint64_t BG_SPR[] = {
     SPR(176, 0, 64, 64),
     SPR(256, 0, 64, 64)
 };
+const uint64_t FUEL_BAR_BG = SPR(32, 96, 64, 8);
+const uint64_t FUEL_BAR = SPR(35, 105, 58, 2);
 const uint64_t PAL_SPR = SPR(0, 32, 9, 6);
 uint32_t PAL_RED[9],
          PAL_GREEN[9],
@@ -641,6 +644,7 @@ void initLevel(int _levelNo) {
     playerVY = 0.f;
     playerAngle = 0.f;
     playerDead = false;
+    playerFuel = 1.f;
 }
 
 int main() {
@@ -693,11 +697,14 @@ int main() {
 
     double time = 0.;
 
-    bool leftDown = false, rightDown = false, upDown = false, downDown = false, bombDown = false;
-    bool leftPressed = false, rightPressed = false, upPressed = false, downPressed = false, bombPressed = false;
+    bool leftDown = false, rightDown = false, upDown = false, downDown = false, bombDown = false, rDown = false;
+    bool leftPressed = false, rightPressed = false, upPressed = false, downPressed = false, bombPressed = false, rPressed = false;
+
+    bool restarting = true, starting = true;
+    float restartT = 1.f;
     
     while (window->isOpen()) {
-        leftPressed = false; rightPressed = false; upPressed = false; downPressed = false; bombPressed = false;
+        leftPressed = false; rightPressed = false; upPressed = false; downPressed = false; bombPressed = false; rPressed = false;
         Event event;
         while (window->pollEvent(event)) {
             if (event.type == Event::Closed) {
@@ -721,6 +728,9 @@ int main() {
                 }
                 else if (event.key.code == Keyboard::Key::Space || event.key.code == Keyboard::Key::X) {
                     bombDown = true;
+                }
+                else if (event.key.code == Keyboard::Key::Escape || event.key.code == Keyboard::Key::R) {
+                    rDown = true;
                 }
             }
             else if (event.type == Event::KeyReleased) {
@@ -751,11 +761,20 @@ int main() {
                     bombDown = false;
                     bombPressed = true;
                 }
+                else if (event.key.code == Keyboard::Key::Escape || event.key.code == Keyboard::Key::R) {
+                    rDown = false;
+                    rPressed = true;
+                }
             }
         }
 
         double dt = 1. / 60.;
         time += dt;
+
+        if (rPressed && !restarting) {
+            restarting = true;
+            restartT = 0.f;
+        }
 
         clearBfr();
 
@@ -763,11 +782,12 @@ int main() {
 
         drawSpr(LEVEL_BG[curLevel-1], 0, 0);
 
-        if (!playerDead) {
-            if (upDown) {
+        if (!playerDead && !restarting) {
+            if (upDown && playerFuel > 0.f) {
                 float angle = (floorf(playerAngle) / 8.f) * PI * 2.f - PI * 0.5f;
                 playerVX += cos(angle) * dt * PLAYER_THRUST;
                 playerVY += sin(angle) * dt * PLAYER_THRUST;
+                playerFuel -= dt / FUEL_TANK_CAPACITY;
             }
             if (leftDown) {
                 playerAngle -= dt * PLAYER_TURN_SPEED;
@@ -824,8 +844,7 @@ int main() {
                 justDied = true;
             }
 
-
-            if (upDown) {
+            if (upDown && playerFuel > 0.f && !restarting) {
                 drawSpr(SHIP_ON[(int)(floor(playerAngle))], (int)round(playerX) - camX + 32-8, (int)round(playerY) - camY + 32-8);
                 float angle = (floorf(playerAngle) / 8.f) * PI * 2.f + PI * 0.5f;
                 addFire(playerX + cos(angle) * 3.5f, playerY + sin(angle) * 3.5f, cos(angle) * 20.f, sin(angle) * 20.f);
@@ -839,7 +858,7 @@ int main() {
                 }
             }
 
-            if (justDied) {
+            if (justDied && !restarting) {
                 explosion(playerX, playerY, playerVX, playerVY, 256);
                 terrainAdd(EX_BIG, (int)playerX, (int)playerY, 0, -400);
                 playerDead = true;
@@ -867,7 +886,7 @@ int main() {
             if (landed) {
                 for (int i=0; i<MAX_DEPOT; i++) {
                     if (sqrt((playerX-depots[i].x)*(playerX-depots[i].x)+(playerY-depots[i].y)*(playerY-depots[i].y)) < 7.f) {
-                        float take = MIN(depots[i].fuel, dt / 3.f);
+                        float take = MIN(depots[i].fuel, MIN(dt / 3.f, 1.f - playerFuel));
                         if (take > 0.f) {
                             depots[i].fuel -= take;
                             playerFuel += take;
@@ -880,12 +899,37 @@ int main() {
             }
         }
 
+        drawSpr(FUEL_BAR_BG, 0, 0);
+        drawSpr(SPR_X(FUEL_BAR), SPR_Y(FUEL_BAR), CLAMP(SPR_W(FUEL_BAR) * (int)(255.f * playerFuel) / 255, 0, SPR_W(FUEL_BAR)), SPR_H(FUEL_BAR), 3, 3);
+
         if (flagH > 0.5f) {
             if (flagH > 1.f) {
                 drawBox(0, 0, 64, 64, 0xFF000000);
             }
             else {
                 drawNotCircle(32, 32, (int)(48.f - CLAMP((flagH*2.f - 1.f) * 48.f, 0., 48.f)), 0xFF000000);
+            }
+        }
+
+        if (restarting) {
+            if (restartT > 1.f && !starting) {
+                restartT = 1.f;
+                drawBox(0, 0, 64, 64, 0xFF000000);
+                starting = true;
+                initLevel(curLevel);
+            }
+            else {
+                drawNotCircle(32, 32, (int)(48.f - CLAMP(restartT * 48.f, 0., 48.f)), 0xFF000000);
+            }
+            if (starting) {
+                restartT -= dt;
+                if (restartT < 0.f) {
+                    restarting = false;
+                    starting = false;
+                }
+            }
+            else {
+                restartT += dt;
             }
         }
 
