@@ -54,7 +54,7 @@ const uint32_t * sprBfr;
 uint16_t * terrainBfr = NULL;
 uint8_t * tspecBfr = NULL;
 
-float playerX, playerY, playerVX, playerVY, playerAngle, playerFuel;
+float playerX, playerY, playerVX, playerVY, playerAngle, playerFuel, waterLogged;
 bool playerDead, beatLevel;
 int playerBombs;
 float flagX, flagY, flagH, flagVis;
@@ -168,6 +168,8 @@ const uint64_t BG_SPR[] = {
 };
 const uint64_t FUEL_BAR_BG = SPR(32, 96, 64, 8);
 const uint64_t FUEL_BAR = SPR(35, 105, 58, 2);
+const uint64_t WATER_BAR_BG = SPR(96, 96, 64, 8);
+const uint64_t WATER_BAR = SPR(99, 105, 58, 2);
 const uint64_t PAL_SPR = SPR(0, 32, 9, 6);
 uint32_t PAL_RED[9],
          PAL_GREEN[9],
@@ -872,6 +874,23 @@ void updateRenderParticles(float dt, int cx, int cy) {
     }
 }
 
+float waterCountInRadius(float x, float y, float r) {
+    float ret = 0.f;
+    float r2 = r * r;
+    for (int i=0; i<MAX_PRT; i++) {
+        if (plist[i].life > 1.f && plist[i].pal == PAL_BLUE) {
+            if (((x-plist[i].x)*(x-plist[i].x)+(y-plist[i].y)*(y-plist[i].y)) < r2) {
+                ret += 1.f;
+            }
+        }
+    }
+    return ret;
+}
+
+float waterPercentInRadius(float x, float y, float r) {
+    return CLAMP(waterCountInRadius(x,y,r) / (PI * r * r), 0.f, 1.f);
+}
+
 void initLevel(int _levelNo) {
     const int idx = _levelNo - 1;
     
@@ -979,6 +998,7 @@ void initLevel(int _levelNo) {
     playerDead = false;
     playerFuel = 1.f;
     playerBombs = 0;
+    waterLogged = 0.25f;
     beatLevel = false;
 }
 
@@ -1362,8 +1382,26 @@ int main() {
             flashT = 0.f;
         }
 
+        if (waterLogged > 0.5f) {
+            playerFuel -= waterLogged * 2.0f * dt;
+            if (playerFuel < 0.f) {
+                playerFuel = 0.f;
+            }
+        }
+
         drawSpr(FUEL_BAR_BG, 0, 0);
         drawSpr(SPR_X(FUEL_BAR), SPR_Y(FUEL_BAR), CLAMP(SPR_W(FUEL_BAR) * (int)(255.f * playerFuel) / 255, 0, SPR_W(FUEL_BAR)), SPR_H(FUEL_BAR), 3, 3);
+
+        waterLogged += waterPercentInRadius(playerX, playerY, 3.f) * dt * 2.f;
+
+        if (waterLogged > 0.f || curLevel >= 4) {
+            drawSpr(WATER_BAR_BG, 0, 55);
+            drawSpr(SPR_X(WATER_BAR), SPR_Y(WATER_BAR), CLAMP(SPR_W(WATER_BAR) * (int)(255.f * waterLogged) / 255, 0, SPR_W(WATER_BAR)), SPR_H(WATER_BAR), 3, 55 + 3);
+            waterLogged -= dt * 1.f;
+            if (waterLogged < 0.f) {
+                waterLogged = 0.f;
+            }
+        }
 
         for (int i=0; i<playerBombs; i++) {
             drawSpr(BOMB_HUD_FRAMES[(int)(time) & 1], 2 + i * 5, 9);
