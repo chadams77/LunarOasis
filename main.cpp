@@ -55,7 +55,8 @@ uint16_t * terrainBfr = NULL;
 uint8_t * tspecBfr = NULL;
 
 float playerX, playerY, playerVX, playerVY, playerAngle, playerFuel;
-bool playerDead;
+bool playerDead, beatLevel;
+int playerBombs;
 float flagX, flagY, flagH, flagVis;
 
 struct depotType {
@@ -63,8 +64,26 @@ struct depotType {
     float x, y, fuel;
 };
 
+struct bombType {
+    bool exists;
+    float t;
+    float x, y, xv, yv;
+};
+
+struct bombPickupType {
+    bool exists;
+    bool available;
+    float x, y;
+};
+
 const int MAX_DEPOT = 16;
 depotType depots[MAX_DEPOT];
+
+const int MAX_BOMB_PICKUP = 8;
+bombPickupType bombPickups[MAX_BOMB_PICKUP];
+
+const int MAX_BOMBS = 8;
+bombType bombs[MAX_BOMBS];
 
 /* SPRITES */
 const uint64_t ROCKS[] = {
@@ -83,6 +102,20 @@ const int N_ROCKS = 9;
 const uint64_t EX_HUGE = SPR(128+16, 0, 32, 32);
 const uint64_t EX_BIG = SPR(128, 0, 16, 16);
 const uint64_t EX_SMALL = SPR(128, 16, 16, 16);
+
+const uint64_t BOMB_FRAMES[] = {
+    SPR(98, 80, 2, 3),
+    SPR(105, 80, 2, 3)
+};
+const uint64_t BOMB_PICKUP_FRAMES[] = {
+    SPR(96, 80, 6, 4),
+    SPR(103, 80, 6, 4)
+};
+const uint64_t BOMB_PICKED_UP = SPR(96, 84, 6, 4);
+const uint64_t BOMB_HUD_FRAMES[] = {
+    SPR(112, 80, 4, 5),
+    SPR(116, 80, 4, 5)
+};
 
 const uint64_t DEPOT_FRAMES[] = {
     SPR(0, 96, 5, 7),
@@ -272,25 +305,98 @@ const uint8_t LEVEL_GRID_2[] = {
     1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1
 };
 
+const uint64_t LEVEL_BG_3 = BG_SPR[1];
+const int LEVEL_START_X_3 = 47, LEVEL_START_Y_3 = 1;
+const uint8_t LEVEL_GRID_3[] = {
+    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+    1,1,1,1,1,1,1,1,1,0,0,0,0,0,1,1,1,1,1,0,0,0,0,0,1,1,1,1,1,0,0,0,1,0,1,1,1,1,0,1,1,0,1,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+    1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,1,1,1,0,0,0,0,0,0,0,0,1,1,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+    1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+    1,1,1,1,1,1,1,1,1,0,0,0,0,0,4,0,0,0,0,3,0,0,0,1,1,0,0,0,0,1,1,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+    1,1,1,1,1,1,1,1,1,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+    1,1,1,1,1,1,1,1,1,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+    1,1,1,1,1,1,1,1,1,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+    1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,0,0,0,0,1,1,1,0,0,0,1,1,1,1,0,0,0,0,1,1,0,0,0,0,0,0,0,1,1,1,1,1,0,0,0,0,0,1,1,1,
+    1,1,0,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,1,1,1,
+    1,1,0,0,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,2,0,0,1,1,1,
+    1,1,0,0,0,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,1,1,1,1,1,1,1,
+    1,1,0,0,0,0,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,1,1,1,1,1,
+    1,1,0,0,0,0,0,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,1,0,0,0,0,0,0,1,1,1,1,
+    1,1,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,3,0,0,0,1,1,0,0,0,0,0,0,1,1,1,1,
+    1,1,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,0,0,1,1,1,0,0,0,1,1,1,1,1,1,
+    1,1,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,1,1,1,1,1,1,1,1,1,1,1,1,
+    1,1,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+    1,1,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+    1,1,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,1,1,1,1,1,1,1,1,1,1,1,1,
+    1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,1,1,1,
+    1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,
+    1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,0,0,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,
+    1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,
+    1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,
+    1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,3,0,0,0,4,4,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,
+    1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,
+    1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,
+    1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,
+    1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,
+    1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,
+    1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,
+    1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,
+    1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,
+    1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,
+    1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,
+    1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,
+    1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,
+    1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,
+    1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,
+    1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,
+    1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,
+    1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,
+    1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,
+    1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,
+    1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,
+    1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,
+    1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,
+    1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,
+    1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,
+    1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,
+    1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,
+    1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,
+    1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,
+    1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,
+    1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,
+    1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,
+    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1
+};
+
 const uint8_t* LEVELS[] = {
     LEVEL_GRID_1,
-    LEVEL_GRID_2
+    LEVEL_GRID_2,
+    LEVEL_GRID_3
 };
 const uint64_t LEVEL_BG[] = {
     LEVEL_BG_1,
-    LEVEL_BG_2
+    LEVEL_BG_2,
+    LEVEL_BG_3
 };
 const int LEVEL_START_X[] {
     LEVEL_START_X_1,
-    LEVEL_START_X_2
+    LEVEL_START_X_2,
+    LEVEL_START_X_3
 };
 const int LEVEL_START_Y[] {
     LEVEL_START_Y_1,
-    LEVEL_START_Y_2
+    LEVEL_START_Y_2,
+    LEVEL_START_Y_3
 };
-const int N_LEVELS = 2;
+const int N_LEVELS = 3;
 
-int curLevel = 2;
+int curLevel = 3;
 
 /* SFX */
 const int MAX_SOUNDS = 64;
@@ -647,8 +753,12 @@ void initLevel(int _levelNo) {
 
     srand(_levelNo * 100);
 
+    memset(depots, 0, sizeof(depotType) * MAX_DEPOT);
+    memset(bombPickups, 0, sizeof(bombPickupType) * MAX_BOMB_PICKUP);
+    memset(bombs, 0, sizeof(bombType) * MAX_BOMBS);
+
     int tnz = 0;
-    int depotI = 0;
+    int depotI = 0, bombI = 0;
     for (int x=0; x<64; x++) {
         for (int y=0; y<64; y++) {
             const int v = grid[x+(y<<6)];
@@ -668,6 +778,15 @@ void initLevel(int _levelNo) {
                     depots[depotI].x = 4.f + 8.f * (float)x;
                     depots[depotI].y = 4.f + 8.f * (float)y;
                     depotI += 1;
+                }
+            }
+            else if (v == 4) { // bomb
+                if (bombI < MAX_BOMBS) {
+                    bombPickups[bombI].exists = true;
+                    bombPickups[bombI].available = true;
+                    bombPickups[bombI].x = 4.f + 8.f * (float)x;
+                    bombPickups[bombI].y = 4.f + 8.f * (float)y;
+                    bombI += 1;
                 }
             }
         }
@@ -720,6 +839,8 @@ void initLevel(int _levelNo) {
     playerAngle = 0.f;
     playerDead = false;
     playerFuel = 1.f;
+    playerBombs = 0;
+    beatLevel = false;
 }
 
 int main() {
@@ -900,6 +1021,17 @@ int main() {
             }
         }
 
+        for (int i=0; i<MAX_BOMB_PICKUP; i++) {
+            if (bombPickups[i].exists) {
+                if (bombPickups[i].available) {
+                    drawSpr(BOMB_PICKUP_FRAMES[(int)(time * 1.5f) & 1], -2 + (int)bombPickups[i].x - camX + 32, (int)bombPickups[i].y - camY + 32 + 1);
+                }
+                else {
+                    drawSpr(BOMB_PICKED_UP, -2 + (int)bombPickups[i].x - camX + 32, (int)bombPickups[i].y - camY + 32 + 1);
+                }
+            }
+        }
+
         if (flagVis) {
             drawSpr(FLAG_FRAMES[CLAMP((int)(floor(flagH * 8.f)), 0, 3)], -2 + (int)flagX - camX + 32, (int)flagY - camY + 32 - 3);
         }
@@ -908,9 +1040,76 @@ int main() {
             bool landed = false;
             bool landingClose = (int)(floor(playerAngle)) == 0 && sprCollideTerrain(SHIP_OFF[0], (int)round(playerX) - 8, (int)round(playerY) - 8 + 3) && !upDown;
             bool justDied = false;
-            if ((int)(floor(playerAngle)) == 0 && sprCollideTerrain(SHIP_OFF[0], (int)round(playerX) - 8, (int)round(playerY) - 8 + 2) && !upDown) {
-                if (fabs(playerVY) > 6.f || fabs(playerVX) > 9.f) {
+            bool bombEx = false;
+            int bombExI = 0;
+
+            for (int i=0; i<MAX_BOMBS; i++) {
+                if (bombs[i].exists && !beatLevel) {
+                    bombs[i].t += dt;
+                    bombs[i].xv -= bombs[i].xv * dt * 0.25f;
+                    bombs[i].yv -= bombs[i].yv * dt * 0.25f;
+                    bombs[i].yv += dt * GRAVITY;
+                    bombs[i].x += bombs[i].xv * dt;
+                    bombs[i].y += bombs[i].yv * dt;
+                    drawSpr(BOMB_FRAMES[(int)(time * 3.f) & 1], (int)round(bombs[i].x)-1 - camX + 32, (int)round(bombs[i].y)-2 - camY + 32);
+                    if (!bombEx && sprCollideTerrain(BOMB_FRAMES[0], (int)round(bombs[i].x)-1, (int)round(bombs[i].y)-2)) {
+                        explosion(bombs[i].x, bombs[i].y, bombs[i].xv, bombs[i].yv, 256);
+                        flashT += 1.f;
+                        terrainAdd(EX_HUGE, (int)bombs[i].x, (int)bombs[i].y, 0, -400);
+                        bombs[i].exists = false;
+                        bombEx = true;
+                        bombExI = i;
+                        if (sqrt((playerX-bombs[i].x)*(playerX-bombs[i].x)+(playerY-bombs[i].y)*(playerY-bombs[i].y)) < 9.f) {
+                            justDied = true;
+                        }
+                    }
+                }
+            }
+
+            if (bombEx) {
+                for (int i=0; i<MAX_DEPOT; i++) {
+                    if (depots[i].exists && (sqrt((bombs[bombExI].x-depots[i].x)*(bombs[bombExI].x-depots[i].x)+(bombs[bombExI].y-depots[i].y)*(bombs[bombExI].y-depots[i].y)) < 7.f)) {
+                        depots[i].exists = false;
+                        explosion(depots[i].x, depots[i].y, 0.f, 0.f, 128);
+                        flashT += 0.5f;
+                        terrainAdd(EX_BIG, (int)depots[i].x, (int)depots[i].y, 0, -400);
+                    }
+                }
+                for (int i=0; i<MAX_BOMB_PICKUP; i++) {
+                    if (bombPickups[i].exists && (sqrt((bombs[bombExI].x-bombPickups[i].x)*(bombs[bombExI].x-bombPickups[i].x)+(bombs[bombExI].y-bombPickups[i].y)*(bombs[bombExI].y-bombPickups[i].y)) < 9.f)) {
+                        if (bombPickups[i].available) {
+                            explosion(bombPickups[i].x, bombPickups[i].y, 0.f, 0.f, 256);
+                            flashT += 1.f;
+                            terrainAdd(EX_HUGE, (int)bombPickups[i].x, (int)bombPickups[i].y, 0, -400);
+                        }
+                        bombPickups[i].exists = false;
+                    }
+                }
+                if (sqrt((bombs[bombExI].x-flagX)*(bombs[bombExI].x-flagX)+(bombs[bombExI].y-flagY)*(bombs[bombExI].y-flagY)) < 7.f) {
                     justDied = true;
+                    flagVis = false;
+                }
+            }
+
+            if (bombPressed && playerBombs > 0) {
+                for (int i=0; i<MAX_BOMBS; i++) {
+                    if (!bombs[i].exists) {
+                        bombs[i].exists = true;
+                        bombs[i].t = 0.f;
+                        bombs[i].xv = playerVX * 0.5f;
+                        bombs[i].yv = playerVY * 2.f;
+                        bombs[i].x = playerX;
+                        bombs[i].y = playerY;
+                        playerBombs -= 1;
+                        break;
+                    }
+                }
+            }
+
+            if ((int)(floor(playerAngle)) == 0 && sprCollideTerrain(SHIP_OFF[0], (int)round(playerX) - 8, (int)round(playerY) - 8 + 2) && !upDown ) {
+                if (fabs(playerVY) > 9.f || fabs(playerVX) > 13.f) {
+                    justDied = true;
+                    beatLevel = false;
                 }
                 else {
                     landed = true;
@@ -921,10 +1120,14 @@ int main() {
                 playerY = round(playerY);
             }
             if (playerX < -5.f || playerY < -5.f || playerX > 516.f || playerY > 516.f) {
-                justDied = true;
+                if (!beatLevel) {
+                    justDied = true;
+                }
             }
             if (sprCollideTerrain(SHIP_OFF[(int)(floor(playerAngle))], (int)round(playerX) - 8, (int)round(playerY) - 8)) {
-                justDied = true;
+                if (!beatLevel) {
+                    justDied = true;
+                }
             }
 
             if (upDown && playerFuel > 0.f && !restarting) {
@@ -946,20 +1149,33 @@ int main() {
                 flashT += 1.f;
                 terrainAdd(EX_BIG, (int)playerX, (int)playerY, 0, -400);
                 playerDead = true;
+                playerBombs = 0;
+                playerFuel = 0.f;
                 for (int i=0; i<MAX_DEPOT; i++) {
-                    if (sqrt((playerX-depots[i].x)*(playerX-depots[i].x)+(playerY-depots[i].y)*(playerY-depots[i].y)) < 7.f) {
+                    if (depots[i].exists && (sqrt((playerX-depots[i].x)*(playerX-depots[i].x)+(playerY-depots[i].y)*(playerY-depots[i].y)) < 7.f)) {
                         depots[i].exists = false;
                         explosion(depots[i].x, depots[i].y, 0.f, 0.f, 128);
                         flashT += 0.5f;
                         terrainAdd(EX_BIG, (int)depots[i].x, (int)depots[i].y, 0, -400);
                     }
                 }
-                if (sqrt((playerX-flagX)*(playerX-flagX)+(playerY-flagY)*(playerY-flagY)) < 7.f) {
+                for (int i=0; i<MAX_BOMB_PICKUP; i++) {
+                    if (bombPickups[i].exists && (sqrt((playerX-bombPickups[i].x)*(playerX-bombPickups[i].x)+(playerY-bombPickups[i].y)*(playerY-bombPickups[i].y)) < 9.f)) {
+                        if (bombPickups[i].available) {
+                            explosion(bombPickups[i].x, bombPickups[i].y, 0.f, 0.f, 256);
+                            flashT += 0.5f;
+                            terrainAdd(EX_HUGE, (int)bombPickups[i].x, (int)bombPickups[i].y, 0, -400);
+                        }
+                        bombPickups[i].exists = false;
+                    }
+                }
+                if (sqrt((playerX-flagX)*(playerX-flagX)+(playerY-flagY)*(playerY-flagY)) < 11.f) {
                     flagVis = false;
                 }
             }
             else if (landed && sqrt((playerX-flagX)*(playerX-flagX)+(playerY-flagY)*(playerY-flagY)) < 7.f) {
                 flagH += dt * 0.5f;
+                beatLevel = true;
             }
             else {
                 flagH -= dt * 0.5f;
@@ -970,7 +1186,7 @@ int main() {
 
             if (landed) {
                 for (int i=0; i<MAX_DEPOT; i++) {
-                    if (sqrt((playerX-depots[i].x)*(playerX-depots[i].x)+(playerY-depots[i].y)*(playerY-depots[i].y)) < 7.f) {
+                    if (depots[i].exists && sqrt((playerX-depots[i].x)*(playerX-depots[i].x)+(playerY-depots[i].y)*(playerY-depots[i].y)) < 7.f) {
                         float take = MIN(depots[i].fuel, MIN(dt / 3.f, 1.f - playerFuel));
                         if (take > 0.f) {
                             depots[i].fuel -= take;
@@ -979,6 +1195,15 @@ int main() {
                                 playerFuel = 1.f;
                             }
                         }
+                    }
+                }
+            }
+
+            for (int i=0; i<MAX_BOMB_PICKUP; i++) {
+                if (bombPickups[i].exists && ((playerX-bombPickups[i].x)*(playerX-bombPickups[i].x)+(playerY-bombPickups[i].y)*(playerY-bombPickups[i].y)) < 9.f) {
+                    if (bombPickups[i].available) {
+                        playerBombs += 1;
+                        bombPickups[i].available = false;
                     }
                 }
             }
@@ -995,9 +1220,17 @@ int main() {
         drawSpr(FUEL_BAR_BG, 0, 0);
         drawSpr(SPR_X(FUEL_BAR), SPR_Y(FUEL_BAR), CLAMP(SPR_W(FUEL_BAR) * (int)(255.f * playerFuel) / 255, 0, SPR_W(FUEL_BAR)), SPR_H(FUEL_BAR), 3, 3);
 
+        for (int i=0; i<playerBombs; i++) {
+            drawSpr(BOMB_HUD_FRAMES[(int)(time) & 1], 2 + i * 5, 9);
+        }
+
         if (flagH > 0.5f) {
             if (flagH > 1.f) {
                 drawBox(0, 0, 64, 64, 0xFF000000);
+                initLevel(MIN(curLevel + 1, N_LEVELS));
+                restarting = true;
+                restartT = 1.f;
+                starting = true;
             }
             else {
                 drawNotCircle(32, 32, (int)(48.f - CLAMP((flagH*2.f - 1.f) * 48.f, 0., 48.f)), 0xFF000000);
