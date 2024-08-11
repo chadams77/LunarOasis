@@ -693,8 +693,8 @@ void terrainRender(int cx, int cy) {
                     int dot = ((ya - za - xa) * 65535) / len;
                     if (curLevel >= 4) {
                         int shade = CLAMP(dot / 64 + 4, 2, 9);
-                        if (shade > 4) {
-                            it[sx] = PAL_GREEN[shade-2];
+                        if (shade > 5) {
+                            it[sx] = PAL_GREEN[shade-3];
                         }
                         else {
                             it[sx] = PAL_GREY[shade+1];
