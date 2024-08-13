@@ -659,6 +659,22 @@ int curLevel = 1, levelsBeat = 0;
 const int MAX_SOUNDS = 64;
 int soundIdx = 0;
 Sound sounds[MAX_SOUNDS];
+SoundBuffer sfx[8];
+const int SFX_BOMB = 0;
+const int SFX_DIE = 1;
+const int SFX_FUEL = 2;
+const int SFX_HOVER = 3;
+const int SFX_SELECT = 4;
+const int SFX_GET_BOMB = 5;
+const int SFX_ENGINE = 6;
+const int SFX_BACK = 7;
+
+void loadSound(int _sfx, const char * fileName) {
+    if (!sfx[_sfx].loadFromFile(fileName)) {
+        cerr << "Error loading: " << fileName << endl;
+        exit(0);
+    }
+}
 
 void playSound(SoundBuffer & bfr, double rate=1., double vol=1.) {
     sounds[soundIdx].setBuffer(bfr);
@@ -666,6 +682,9 @@ void playSound(SoundBuffer & bfr, double rate=1., double vol=1.) {
     sounds[soundIdx].setPitch(rate);
     sounds[soundIdx].play();
     soundIdx = (soundIdx + 1) % MAX_SOUNDS;
+}
+void playSound(int _sfx, double rate=1., double vol=1.) {
+    playSound(sfx[_sfx], rate, vol);
 }
 /* --- */
 
@@ -1203,6 +1222,15 @@ int main() {
 
     spr64 = new Sprite(*tex64);
 
+    loadSound(SFX_BOMB, "sfx/bomb-explode.wav");
+    loadSound(SFX_ENGINE, "sfx/engine.wav");
+    loadSound(SFX_DIE, "sfx/ship-explode.wav");
+    loadSound(SFX_SELECT, "sfx/select.wav");
+    loadSound(SFX_HOVER, "sfx/hover.wav");
+    loadSound(SFX_GET_BOMB, "sfx/get-bomb.wav");
+    loadSound(SFX_FUEL, "sfx/get-fuel.wav");
+    loadSound(SFX_BACK, "sfx/back.wav");
+
     spritesTex = new Texture();
     if (!spritesTex->loadFromFile("sprites/sprite-sheet.png")) {
         cerr << "sprite-sheet.png not found" << endl;
@@ -1331,12 +1359,14 @@ int main() {
         if (rPressed && !restarting) {
             restarting = true;
             restartT = 0.f;
+            playSound(SFX_BACK);
         }
 
         if (escPressed) {
             restarting = true;
             restartT = 0.f;
             showLevelSelNext = true;
+            playSound(SFX_BACK);
         }
 
         clearBfr();
@@ -1360,6 +1390,7 @@ int main() {
                 levelSelHiding = false;
                 levelSelT = 0.f;
                 levelSideHideT = 0.f;
+                playSound(SFX_SELECT);
             }
 
             if (escPressed) {
@@ -1410,21 +1441,25 @@ int main() {
             if (rightPressed) {
                 if ((curLevel-1) % 3 < 2) {
                     curLevel += 1;
+                    playSound(SFX_HOVER);
                 }
             }
             else if (leftPressed) {
                 if ((curLevel-1) % 3 > 0) {
                     curLevel -= 1;
+                    playSound(SFX_HOVER);
                 }
             }
             else if (upPressed) {
                 if ((curLevel-1)/3 > 0) {
                     curLevel -= 3;
+                    playSound(SFX_HOVER);
                 }
             }
             else if (downPressed) { 
                 if ((curLevel-1)/3 < ((N_LEVELS-1)/3)) {
                     curLevel += 3;
+                    playSound(SFX_HOVER);
                 }
             }
 
@@ -1441,10 +1476,12 @@ int main() {
             if (rPressed || bombPressed) {
                 levelSelHiding = true;
                 initLevel(curLevel);
+                playSound(SFX_SELECT);
             }
             if (escPressed) {
                 levelSelHiding = true;
                 levelSelBackNext = true;
+                playSound(SFX_BACK);
             }
 
             if (levelSelHiding) {
