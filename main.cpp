@@ -629,7 +629,7 @@ const int LEVEL_START_Y[] {
     LEVEL_START_Y_5,
     LEVEL_START_Y_6
 };
-const int N_LEVELS = 4;
+const int N_LEVELS = 1;
 
 int curLevel = 1;
 
