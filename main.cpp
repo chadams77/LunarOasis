@@ -107,6 +107,28 @@ const uint64_t ROCKS[] = {
 };
 const int N_ROCKS = 9;
 
+const uint64_t INTRO_BG[] = {
+    SPR(496, 320, 64, 64),
+    SPR(496, 240, 64, 64),
+    SPR(496, 160, 64, 64),
+    SPR(496, 80, 64, 64),
+    SPR(496, 0, 64, 64)
+};
+
+const uint64_t INTRO_FG[] = {
+    SPR(576, 80, 64, 64),
+    SPR(576, 0, 64, 64)
+};
+
+const uint64_t LEVEL_SEL_BG = SPR(736, 0, 64, 64);
+
+const uint64_t LEVEL_SEL_ICONS[] = {
+    SPR(800, 0, 16, 16),
+    SPR(816, 0, 16, 16),
+    SPR(832, 0, 16, 16),
+    SPR(848, 0, 16, 16)
+};
+
 const uint64_t EX_HUGE = SPR(128+16, 0, 32, 32);
 const uint64_t EX_BIG = SPR(128, 0, 16, 16);
 const uint64_t EX_SMALL = SPR(128, 16, 16, 16);
@@ -629,9 +651,9 @@ const int LEVEL_START_Y[] {
     LEVEL_START_Y_5,
     LEVEL_START_Y_6
 };
-const int N_LEVELS = 1;
+const int N_LEVELS = 6;
 
-int curLevel = 1;
+int curLevel = 1, levelsBeat = 0;
 
 /* SFX */
 const int MAX_SOUNDS = 64;
@@ -1183,7 +1205,7 @@ int main() {
 
     spritesTex = new Texture();
     if (!spritesTex->loadFromFile("sprites/sprite-sheet.png")) {
-        cerr << "Tileset not found" << endl;
+        cerr << "sprite-sheet.png not found" << endl;
         exit(0);
     }
     Image spritesImg = spritesTex->copyToImage();
@@ -1207,15 +1229,32 @@ int main() {
 
     double time = 0.;
 
-    bool leftDown = false, rightDown = false, upDown = false, downDown = false, bombDown = false, rDown = false;
-    bool leftPressed = false, rightPressed = false, upPressed = false, downPressed = false, bombPressed = false, rPressed = false;
+    bool leftDown = false, rightDown = false, upDown = false, downDown = false, bombDown = false, rDown = false, escDown;
+    bool leftPressed = false, rightPressed = false, upPressed = false, downPressed = false, bombPressed = false, rPressed = false, escPressed;
 
     bool restarting = true, starting = true;
     float restartT = 1.f;
     float flashT = 0.f;
+
+    bool introShowing = true;
+    bool introHiding = false;
+    float introT = 0.f;
+    float introHideT = 0.f;
+
+    bool levelSelShowing = false;
+    bool levelSelHiding = false;
+    float levelSelT = 0.f;
+    float levelSideHideT = 0.f;
+    bool showLevelSelNext = false, levelSelBackNext = false;
+
+    FILE * fh = fopen("save.bin", "rb");
+    if (fh) {
+        fread(&levelsBeat, sizeof(levelsBeat), 1, fh);
+        fclose(fh);
+    }
     
     while (window->isOpen()) {
-        leftPressed = false; rightPressed = false; upPressed = false; downPressed = false; bombPressed = false; rPressed = false;
+        leftPressed = false; rightPressed = false; upPressed = false; downPressed = false; bombPressed = false; rPressed = false; escPressed = false;
         Event event;
         while (window->pollEvent(event)) {
             if (event.type == Event::Closed) {
@@ -1240,8 +1279,11 @@ int main() {
                 else if (event.key.code == Keyboard::Key::Space || event.key.code == Keyboard::Key::X) {
                     bombDown = true;
                 }
-                else if (event.key.code == Keyboard::Key::Escape || event.key.code == Keyboard::Key::R) {
+                else if (event.key.code == Keyboard::Key::R) {
                     rDown = true;
+                }
+                else if (event.key.code == Keyboard::Key::Escape) {
+                    escDown = true;
                 }
             }
             else if (event.type == Event::KeyReleased) {
@@ -1268,13 +1310,17 @@ int main() {
                     downDown = false;
                     downPressed = true;
                 }
-                else if (event.key.code == Keyboard::Key::Space || event.key.code == Keyboard::Key::X) {
+                else if (event.key.code == Keyboard::Key::Space || event.key.code == Keyboard::Key::X || event.key.code == Keyboard::Key::Enter) {
                     bombDown = false;
                     bombPressed = true;
                 }
-                else if (event.key.code == Keyboard::Key::Escape || event.key.code == Keyboard::Key::R) {
+                else if (event.key.code == Keyboard::Key::R) {
                     rDown = false;
                     rPressed = true;
+                }
+                else if (event.key.code == Keyboard::Key::Escape) {
+                    escDown = false;
+                    escPressed = true;
                 }
             }
         }
@@ -1287,325 +1333,469 @@ int main() {
             restartT = 0.f;
         }
 
+        if (escPressed) {
+            restarting = true;
+            restartT = 0.f;
+            showLevelSelNext = true;
+        }
+
         clearBfr();
 
         //
 
-        drawSpr(LEVEL_BG[curLevel-1], 0, 0);
+        if (introShowing) {
 
-        if (!playerDead && !restarting) {
-            if (upDown && playerFuel > 0.f) {
-                float angle = (floorf(playerAngle) / 8.f) * PI * 2.f - PI * 0.5f;
-                playerVX += cos(angle) * dt * PLAYER_THRUST;
-                playerVY += sin(angle) * dt * PLAYER_THRUST;
-                playerFuel -= dt / FUEL_TANK_CAPACITY;
-                //flashT += 1.f * dt * powf((float)((rand() & 0xFF)) / 255.f, 4.f);
+            introT += dt / 1.75f;
+            drawSpr(INTRO_BG[CLAMP((int)(introT * 5.f), 0, 4)], 0, 0);
+            if (introT > 1.f) {
+                drawSpr(INTRO_FG[0], (int)CLAMP(64.f * (introT-1.f) * 1.75f - 64.f, -64.f, 0.f), 0);
             }
-            if (leftDown) {
-                playerAngle -= dt * PLAYER_TURN_SPEED;
+            if (introT > 1.5f) {
+                drawSpr(INTRO_FG[1], 0, (int)CLAMP(-16.f * (introT-1.5f) * 1.75f + 32.f, 0.f, 16.f));
             }
-            if (rightDown) {
-                playerAngle += dt * PLAYER_TURN_SPEED;
+
+            if (rPressed || upPressed || bombPressed) {
+                introHiding = true;
+                levelSelShowing = true;
+                levelSelHiding = false;
+                levelSelT = 0.f;
+                levelSideHideT = 0.f;
             }
-            playerAngle = fmodf(playerAngle + 8.f * 100.f, 8.f);
 
-            playerVX -= playerVX * dt * 0.25f;
-            playerVY -= playerVY * dt * 0.25f;
-            playerVY += dt * GRAVITY;
-            playerX += playerVX * dt;
-            playerY += playerVY * dt;
-        }
-
-        int camX = (int)round(playerX),
-            camY = (int)round(playerY);
-
-        camX += ((rand() & 0xFF) * (int)(flashT * 200.f) - 100) / (255 * 20);
-        camY += ((rand() & 0xFF) * (int)(flashT * 200.f) - 100) / (255 * 20);
-
-        camX = CLAMP(camX, 32, 512 - 32);
-        camY = CLAMP(camY, 32, 512 - 32);
-
-        for (int i=0; i<MAX_SPOUT; i++) {
-            if (spouts[i].exists) {
-                drawSpr(SPOUT_SPR, (int)spouts[i].x - camX - 8 + 32, (int)spouts[i].y - camY - 8 + 32);
-                addWater(spouts[i].x, spouts[i].y, 0., 4.f);
+            if (escPressed) {
+                break;
             }
-        }
 
-        updateRenderParticles(dt, camX, camY);
-
-        terrainRender(camX, camY);
-
-        for (int i=0; i<MAX_DEPOT; i++) {
-            if (depots[i].exists) {
-                drawSpr(DEPOT_FRAMES[CLAMP((int)(floor(depots[i].fuel * 5.f)), 0, 4)], -2 + (int)depots[i].x - camX + 32, (int)depots[i].y - camY + 32 - 2);
-            }
-        }
-
-        for (int i=0; i<MAX_BOMB_PICKUP; i++) {
-            if (bombPickups[i].exists) {
-                if (bombPickups[i].available) {
-                    drawSpr(BOMB_PICKUP_FRAMES[(int)(time * 1.5f) & 1], -2 + (int)bombPickups[i].x - camX + 32, (int)bombPickups[i].y - camY + 32 + 1);
-                }
-                else {
-                    drawSpr(BOMB_PICKED_UP, -2 + (int)bombPickups[i].x - camX + 32, (int)bombPickups[i].y - camY + 32 + 1);
+            if (introHiding) {
+                introHideT += dt;
+                drawNotCircle(32, 32, (int)(48.f - CLAMP(introHideT * 48.f, 0., 48.f)), 0xFF000000);
+                if (introHideT > 1.f) {
+                    introShowing = false;
                 }
             }
+
         }
+        else if (levelSelShowing) {
 
-        if (flagVis) {
-            drawSpr(FLAG_FRAMES[CLAMP((int)(floor(flagH * 8.f)), 0, 3)], -2 + (int)flagX - camX + 32, (int)flagY - camY + 32 - 3);
-        }
-
-        if (!playerDead) {
-            bool landed = false;
-            bool landingClose = (int)(floor(playerAngle)) == 0 && sprCollideTerrain(SHIP_OFF[0], (int)round(playerX) - 8, (int)round(playerY) - 8 + 3) && !upDown;
-            bool justDied = false;
-            bool bombEx = false;
-            int bombExI = 0;
-
-            for (int i=0; i<MAX_BOMBS; i++) {
-                if (bombs[i].exists && !beatLevel) {
-                    bombs[i].t += dt;
-                    bombs[i].xv -= bombs[i].xv * dt * 0.25f;
-                    bombs[i].yv -= bombs[i].yv * dt * 0.25f;
-                    bombs[i].yv += dt * GRAVITY;
-                    bombs[i].x += bombs[i].xv * dt;
-                    bombs[i].y += bombs[i].yv * dt;
-                    drawSpr(BOMB_FRAMES[(int)(time * 3.f) & 1], (int)round(bombs[i].x)-1 - camX + 32, (int)round(bombs[i].y)-2 - camY + 32);
-                    if (!bombEx && sprCollideTerrain(BOMB_FRAMES[0], (int)round(bombs[i].x)-1, (int)round(bombs[i].y)-2)) {
-                        explosion(bombs[i].x, bombs[i].y, bombs[i].xv, bombs[i].yv, 256);
-                        flashT += 1.f;
-                        terrainAdd(EX_HUGE, (int)bombs[i].x, (int)bombs[i].y, 0, -400);
-                        bombs[i].exists = false;
-                        bombEx = true;
-                        bombExI = i;
-                        if (sqrt((playerX-bombs[i].x)*(playerX-bombs[i].x)+(playerY-bombs[i].y)*(playerY-bombs[i].y)) < 10.f) {
-                            justDied = true;
+            levelSelT += dt / 1.75f;
+            drawSpr(LEVEL_SEL_BG, 0, 0);
+            if (levelSelT < 1.f) {
+                drawNotCircle(32, 32, (int)(CLAMP(levelSelT * 48.f, 0., 48.f)), 0xFF000000);
+            }
+            if (levelSelT > 0.5f) {
+                int yOffset = 64 - (int)CLAMP((levelSelT-0.5f)*3.f*64.f, 0., 64.f);
+                for (int x=0; x<3; x++) {
+                    for (int y=0; y<2; y++) {
+                        int x1 = x * (7 + 12) + 7;
+                        int y1 = yOffset + y * (8 + 8) + 29;
+                        int spr = 0;
+                        int i = x + y * 3 + 1;
+                        if (i > (levelsBeat+1)) {
+                            spr = 0;
+                        }
+                        else if (i == (levelsBeat+1)) {
+                            spr = 2;
+                        }
+                        else if (i < (levelsBeat+1)) {
+                            spr = 1;
+                        }
+                        drawSpr(LEVEL_SEL_ICONS[spr], x1 - 3, y1 - 3);
+                        if (i == curLevel) {
+                            drawSpr(LEVEL_SEL_ICONS[3], x1 - 3, y1 - 3);
                         }
                     }
                 }
             }
 
-            if (bombEx) {
-                for (int i=0; i<MAX_DEPOT; i++) {
-                    if (depots[i].exists && (sqrt((bombs[bombExI].x-depots[i].x)*(bombs[bombExI].x-depots[i].x)+(bombs[bombExI].y-depots[i].y)*(bombs[bombExI].y-depots[i].y)) < 7.f)) {
-                        depots[i].exists = false;
-                        explosion(depots[i].x, depots[i].y, 0.f, 0.f, 128);
-                        flashT += 0.5f;
-                        terrainAdd(EX_BIG, (int)depots[i].x, (int)depots[i].y, 0, -400);
-                    }
+            if (rightPressed) {
+                if ((curLevel-1) % 3 < 2) {
+                    curLevel += 1;
                 }
-                for (int i=0; i<MAX_BOMB_PICKUP; i++) {
-                    if (bombPickups[i].exists && (sqrt((bombs[bombExI].x-bombPickups[i].x)*(bombs[bombExI].x-bombPickups[i].x)+(bombs[bombExI].y-bombPickups[i].y)*(bombs[bombExI].y-bombPickups[i].y)) < 10.f)) {
-                        if (bombPickups[i].available) {
-                            explosion(bombPickups[i].x, bombPickups[i].y, 0.f, 0.f, 256);
-                            flashT += 1.f;
-                            terrainAdd(EX_HUGE, (int)bombPickups[i].x, (int)bombPickups[i].y, 0, -400);
-                        }
-                        bombPickups[i].exists = false;
-                    }
+            }
+            else if (leftPressed) {
+                if ((curLevel-1) % 3 > 0) {
+                    curLevel -= 1;
                 }
-                if (sqrt((bombs[bombExI].x-flagX)*(bombs[bombExI].x-flagX)+(bombs[bombExI].y-flagY)*(bombs[bombExI].y-flagY)) < 7.f) {
-                    justDied = true;
-                    flagVis = false;
+            }
+            else if (upPressed) {
+                if ((curLevel-1)/3 > 0) {
+                    curLevel -= 3;
+                }
+            }
+            else if (downPressed) { 
+                if ((curLevel-1)/3 < ((N_LEVELS-1)/3)) {
+                    curLevel += 3;
                 }
             }
 
-            if (bombPressed && playerBombs > 0) {
-                for (int i=0; i<MAX_BOMBS; i++) {
-                    if (!bombs[i].exists) {
-                        bombs[i].exists = true;
-                        bombs[i].t = 0.f;
-                        bombs[i].xv = playerVX * 0.5f;
-                        bombs[i].yv = playerVY * 2.f;
-                        bombs[i].x = playerX;
-                        bombs[i].y = playerY;
-                        playerBombs -= 1;
-                        break;
+            if (curLevel > (levelsBeat + 1)) {
+                curLevel = levelsBeat + 1;
+            }
+            if (curLevel > N_LEVELS) {
+                curLevel = N_LEVELS;
+            }
+            if (curLevel < 0) {
+                curLevel = 0;
+            }
+
+            if (rPressed || bombPressed) {
+                levelSelHiding = true;
+                initLevel(curLevel);
+            }
+            if (escPressed) {
+                levelSelHiding = true;
+                levelSelBackNext = true;
+            }
+
+            if (levelSelHiding) {
+                levelSideHideT += dt;
+                drawNotCircle(32, 32, (int)(48.f - CLAMP(levelSideHideT * 48.f, 0., 48.f)), 0xFF000000);
+                if (levelSideHideT > 1.f) {
+                    levelSelShowing = false;
+                    if (levelSelBackNext) {
+                        introShowing = true;
+                        introT = 0.f;
+                        introHiding = false;
+                        introHideT = 0.f;
+                        levelSelBackNext = false;
                     }
                 }
             }
 
-            if (waterLogged > 0.75f && playerFuel <= 0.f) {
-                justDied = true;
+        }
+        else {
+
+            drawSpr(LEVEL_BG[curLevel-1], 0, 0);
+
+            if (!playerDead && !restarting) {
+                if (upDown && playerFuel > 0.f) {
+                    float angle = (floorf(playerAngle) / 8.f) * PI * 2.f - PI * 0.5f;
+                    playerVX += cos(angle) * dt * PLAYER_THRUST;
+                    playerVY += sin(angle) * dt * PLAYER_THRUST;
+                    playerFuel -= dt / FUEL_TANK_CAPACITY;
+                    //flashT += 1.f * dt * powf((float)((rand() & 0xFF)) / 255.f, 4.f);
+                }
+                if (leftDown) {
+                    playerAngle -= dt * PLAYER_TURN_SPEED;
+                }
+                if (rightDown) {
+                    playerAngle += dt * PLAYER_TURN_SPEED;
+                }
+                playerAngle = fmodf(playerAngle + 8.f * 100.f, 8.f);
+
+                playerVX -= playerVX * dt * 0.25f;
+                playerVY -= playerVY * dt * 0.25f;
+                playerVY += dt * GRAVITY;
+                playerX += playerVX * dt;
+                playerY += playerVY * dt;
             }
 
-            if ((int)(floor(playerAngle)) == 0 && sprCollideTerrain(SHIP_OFF[0], (int)round(playerX) - 8, (int)round(playerY) - 8 + 2) && !upDown ) {
-                if (fabs(playerVY) > 9.f || fabs(playerVX) > 13.f) {
-                    justDied = true;
-                    beatLevel = false;
-                }
-                else {
-                    landed = true;
-                }
-                playerVX = 0.f;
-                playerVY = 0.f;
-                playerX = round(playerX);
-                playerY = round(playerY);
-            }
-            if (playerX < -5.f || playerY < -5.f || playerX > 516.f || playerY > 516.f) {
-                if (!beatLevel) {
-                    justDied = true;
-                }
-            }
-            if (sprCollideTerrain(SHIP_OFF[(int)(floor(playerAngle))], (int)round(playerX) - 8, (int)round(playerY) - 8)) {
-                if (!beatLevel) {
-                    justDied = true;
-                }
-            }
+            int camX = (int)round(playerX),
+                camY = (int)round(playerY);
 
-            if (upDown && playerFuel > 0.f && !restarting) {
-                drawSpr(SHIP_ON[(int)(floor(playerAngle))], (int)round(playerX) - camX + 32-8, (int)round(playerY) - camY + 32-8);
-                float angle = (floorf(playerAngle) / 8.f) * PI * 2.f + PI * 0.5f;
-                addFire(playerX + cos(angle) * 3.5f, playerY + sin(angle) * 3.5f, cos(angle) * 20.f, sin(angle) * 20.f);
-            }
-            else {
-                if (landed || landingClose) {
-                    drawSpr(SHIP_LANDED, (int)round(playerX) - camX + 32-8, (int)round(playerY) - camY + 32-8);
-                }
-                else {
-                    drawSpr(SHIP_OFF[(int)(floor(playerAngle))], (int)round(playerX) - camX + 32-8, (int)round(playerY) - camY + 32-8);
-                }
-            }
+            camX += ((rand() & 0xFF) * (int)(flashT * 200.f) - 100) / (255 * 20);
+            camY += ((rand() & 0xFF) * (int)(flashT * 200.f) - 100) / (255 * 20);
 
-            if (justDied && !restarting) {
-                explosion(playerX, playerY, playerVX, playerVY, 256);
-                flashT += 1.f;
-                terrainAdd(EX_BIG, (int)playerX, (int)playerY, 0, -400);
-                playerDead = true;
-                playerBombs = 0;
-                playerFuel = 0.f;
-                for (int i=0; i<MAX_DEPOT; i++) {
-                    if (depots[i].exists && (sqrt((playerX-depots[i].x)*(playerX-depots[i].x)+(playerY-depots[i].y)*(playerY-depots[i].y)) < 7.f)) {
-                        depots[i].exists = false;
-                        explosion(depots[i].x, depots[i].y, 0.f, 0.f, 128);
-                        flashT += 0.5f;
-                        terrainAdd(EX_BIG, (int)depots[i].x, (int)depots[i].y, 0, -400);
-                    }
-                }
-                for (int i=0; i<MAX_BOMB_PICKUP; i++) {
-                    if (bombPickups[i].exists && (sqrt((playerX-bombPickups[i].x)*(playerX-bombPickups[i].x)+(playerY-bombPickups[i].y)*(playerY-bombPickups[i].y)) < 9.f)) {
-                        if (bombPickups[i].available) {
-                            explosion(bombPickups[i].x, bombPickups[i].y, 0.f, 0.f, 256);
-                            flashT += 0.5f;
-                            terrainAdd(EX_HUGE, (int)bombPickups[i].x, (int)bombPickups[i].y, 0, -400);
-                        }
-                        bombPickups[i].exists = false;
-                    }
-                }
-                if (sqrt((playerX-flagX)*(playerX-flagX)+(playerY-flagY)*(playerY-flagY)) < 11.f) {
-                    flagVis = false;
-                }
-            }
-            else if (landed && sqrt((playerX-flagX)*(playerX-flagX)+(playerY-flagY)*(playerY-flagY)) < 7.f) {
-                flagH += dt * 0.5f;
-                beatLevel = true;
-            }
-            else {
-                flagH -= dt * 0.5f;
-                if (flagH < 0.f) {
-                    flagH = 0.f;
+            camX = CLAMP(camX, 32, 512 - 32);
+            camY = CLAMP(camY, 32, 512 - 32);
+
+            for (int i=0; i<MAX_SPOUT; i++) {
+                if (spouts[i].exists) {
+                    drawSpr(SPOUT_SPR, (int)spouts[i].x - camX - 8 + 32, (int)spouts[i].y - camY - 8 + 32);
+                    addWater(spouts[i].x, spouts[i].y, 0., 4.f);
                 }
             }
 
-            if (landed) {
-                for (int i=0; i<MAX_DEPOT; i++) {
-                    if (depots[i].exists && sqrt((playerX-depots[i].x)*(playerX-depots[i].x)+(playerY-depots[i].y)*(playerY-depots[i].y)) < 7.f) {
-                        float take = MIN(depots[i].fuel, MIN(dt / 3.f, 1.f - playerFuel));
-                        if (take > 0.f) {
-                            depots[i].fuel -= take;
-                            playerFuel += take;
-                            if (playerFuel > 1.f) {
-                                playerFuel = 1.f;
-                            }
-                        }
-                    }
+            updateRenderParticles(dt, camX, camY);
+
+            terrainRender(camX, camY);
+
+            for (int i=0; i<MAX_DEPOT; i++) {
+                if (depots[i].exists) {
+                    drawSpr(DEPOT_FRAMES[CLAMP((int)(floor(depots[i].fuel * 5.f)), 0, 4)], -2 + (int)depots[i].x - camX + 32, (int)depots[i].y - camY + 32 - 2);
                 }
             }
 
             for (int i=0; i<MAX_BOMB_PICKUP; i++) {
-                if (bombPickups[i].exists && ((playerX-bombPickups[i].x)*(playerX-bombPickups[i].x)+(playerY-bombPickups[i].y)*(playerY-bombPickups[i].y)) < 9.f) {
+                if (bombPickups[i].exists) {
                     if (bombPickups[i].available) {
-                        playerBombs += 1;
-                        bombPickups[i].available = false;
+                        drawSpr(BOMB_PICKUP_FRAMES[(int)(time * 1.5f) & 1], -2 + (int)bombPickups[i].x - camX + 32, (int)bombPickups[i].y - camY + 32 + 1);
+                    }
+                    else {
+                        drawSpr(BOMB_PICKED_UP, -2 + (int)bombPickups[i].x - camX + 32, (int)bombPickups[i].y - camY + 32 + 1);
                     }
                 }
             }
-        }
 
-        if (flashT > 0.01f) {
-            flashT -= flashT * dt * 2.f;
-            drawBox(0, 0, 64, 64, 0xFFFFFF | (CLAMP((uint32_t)(flashT * 255.f), 0, 255) << 24u));
-        }
-        else {
-            flashT = 0.f;
-        }
-
-        if (waterLogged > 0.75f && !playerDead) {
-            playerFuel -= waterLogged * 2.0f * dt;
-            if (playerFuel < 0.f) {
-                playerFuel = 0.f;
+            if (flagVis) {
+                drawSpr(FLAG_FRAMES[CLAMP((int)(floor(flagH * 8.f)), 0, 3)], -2 + (int)flagX - camX + 32, (int)flagY - camY + 32 - 3);
             }
-        }
 
-        drawSpr(FUEL_BAR_BG, 0, 0);
-        drawSpr(SPR_X(FUEL_BAR), SPR_Y(FUEL_BAR), CLAMP(SPR_W(FUEL_BAR) * (int)(255.f * playerFuel) / 255, 0, SPR_W(FUEL_BAR)), SPR_H(FUEL_BAR), 3, 3);
-
-        if (!playerDead) {
-            waterLogged += waterPercentInRadius(playerX, playerY, 3.f) * dt * 2.f;
-            if (waterLogged > 1.f) {
-                waterLogged = 1.f;
-            }
-        }
-
-        if (waterLogged > 0.f || curLevel >= 4) {
-            drawSpr(WATER_BAR_BG, 0, 55);
-            drawSpr(SPR_X(WATER_BAR), SPR_Y(WATER_BAR), CLAMP(SPR_W(WATER_BAR) * (int)(255.f * waterLogged) / 255, 0, SPR_W(WATER_BAR)), SPR_H(WATER_BAR), 3, 55 + 3);
             if (!playerDead) {
-                waterLogged -= dt * 1.f;
-                if (waterLogged < 0.f) {
-                    waterLogged = 0.f;
+                bool landed = false;
+                bool landingClose = (int)(floor(playerAngle)) == 0 && sprCollideTerrain(SHIP_OFF[0], (int)round(playerX) - 8, (int)round(playerY) - 8 + 3) && !upDown;
+                bool justDied = false;
+                bool bombEx = false;
+                int bombExI = 0;
+
+                for (int i=0; i<MAX_BOMBS; i++) {
+                    if (bombs[i].exists && !beatLevel) {
+                        bombs[i].t += dt;
+                        bombs[i].xv -= bombs[i].xv * dt * 0.25f;
+                        bombs[i].yv -= bombs[i].yv * dt * 0.25f;
+                        bombs[i].yv += dt * GRAVITY;
+                        bombs[i].x += bombs[i].xv * dt;
+                        bombs[i].y += bombs[i].yv * dt;
+                        drawSpr(BOMB_FRAMES[(int)(time * 3.f) & 1], (int)round(bombs[i].x)-1 - camX + 32, (int)round(bombs[i].y)-2 - camY + 32);
+                        if (!bombEx && sprCollideTerrain(BOMB_FRAMES[0], (int)round(bombs[i].x)-1, (int)round(bombs[i].y)-2)) {
+                            explosion(bombs[i].x, bombs[i].y, bombs[i].xv, bombs[i].yv, 256);
+                            flashT += 1.f;
+                            terrainAdd(EX_HUGE, (int)bombs[i].x, (int)bombs[i].y, 0, -400);
+                            bombs[i].exists = false;
+                            bombEx = true;
+                            bombExI = i;
+                            if (sqrt((playerX-bombs[i].x)*(playerX-bombs[i].x)+(playerY-bombs[i].y)*(playerY-bombs[i].y)) < 10.f) {
+                                justDied = true;
+                            }
+                        }
+                    }
+                }
+
+                if (bombEx) {
+                    for (int i=0; i<MAX_DEPOT; i++) {
+                        if (depots[i].exists && (sqrt((bombs[bombExI].x-depots[i].x)*(bombs[bombExI].x-depots[i].x)+(bombs[bombExI].y-depots[i].y)*(bombs[bombExI].y-depots[i].y)) < 7.f)) {
+                            depots[i].exists = false;
+                            explosion(depots[i].x, depots[i].y, 0.f, 0.f, 128);
+                            flashT += 0.5f;
+                            terrainAdd(EX_BIG, (int)depots[i].x, (int)depots[i].y, 0, -400);
+                        }
+                    }
+                    for (int i=0; i<MAX_BOMB_PICKUP; i++) {
+                        if (bombPickups[i].exists && (sqrt((bombs[bombExI].x-bombPickups[i].x)*(bombs[bombExI].x-bombPickups[i].x)+(bombs[bombExI].y-bombPickups[i].y)*(bombs[bombExI].y-bombPickups[i].y)) < 10.f)) {
+                            if (bombPickups[i].available) {
+                                explosion(bombPickups[i].x, bombPickups[i].y, 0.f, 0.f, 256);
+                                flashT += 1.f;
+                                terrainAdd(EX_HUGE, (int)bombPickups[i].x, (int)bombPickups[i].y, 0, -400);
+                            }
+                            bombPickups[i].exists = false;
+                        }
+                    }
+                    if (sqrt((bombs[bombExI].x-flagX)*(bombs[bombExI].x-flagX)+(bombs[bombExI].y-flagY)*(bombs[bombExI].y-flagY)) < 7.f) {
+                        justDied = true;
+                        flagVis = false;
+                    }
+                }
+
+                if (bombPressed && playerBombs > 0) {
+                    for (int i=0; i<MAX_BOMBS; i++) {
+                        if (!bombs[i].exists) {
+                            bombs[i].exists = true;
+                            bombs[i].t = 0.f;
+                            bombs[i].xv = playerVX * 0.5f;
+                            bombs[i].yv = playerVY * 2.f;
+                            bombs[i].x = playerX;
+                            bombs[i].y = playerY;
+                            playerBombs -= 1;
+                            break;
+                        }
+                    }
+                }
+
+                if (waterLogged > 0.75f && playerFuel <= 0.f) {
+                    justDied = true;
+                }
+
+                if ((int)(floor(playerAngle)) == 0 && sprCollideTerrain(SHIP_OFF[0], (int)round(playerX) - 8, (int)round(playerY) - 8 + 2) && !upDown ) {
+                    if (fabs(playerVY) > 9.f || fabs(playerVX) > 13.f) {
+                        justDied = true;
+                        beatLevel = false;
+                    }
+                    else {
+                        landed = true;
+                    }
+                    playerVX = 0.f;
+                    playerVY = 0.f;
+                    playerX = round(playerX);
+                    playerY = round(playerY);
+                }
+                if (playerX < -5.f || playerY < -5.f || playerX > 516.f || playerY > 516.f) {
+                    if (!beatLevel) {
+                        justDied = true;
+                    }
+                }
+                if (sprCollideTerrain(SHIP_OFF[(int)(floor(playerAngle))], (int)round(playerX) - 8, (int)round(playerY) - 8)) {
+                    if (!beatLevel) {
+                        justDied = true;
+                    }
+                }
+
+                if (upDown && playerFuel > 0.f && !restarting) {
+                    drawSpr(SHIP_ON[(int)(floor(playerAngle))], (int)round(playerX) - camX + 32-8, (int)round(playerY) - camY + 32-8);
+                    float angle = (floorf(playerAngle) / 8.f) * PI * 2.f + PI * 0.5f;
+                    addFire(playerX + cos(angle) * 3.5f, playerY + sin(angle) * 3.5f, cos(angle) * 20.f, sin(angle) * 20.f);
+                }
+                else {
+                    if (landed || landingClose) {
+                        drawSpr(SHIP_LANDED, (int)round(playerX) - camX + 32-8, (int)round(playerY) - camY + 32-8);
+                    }
+                    else {
+                        drawSpr(SHIP_OFF[(int)(floor(playerAngle))], (int)round(playerX) - camX + 32-8, (int)round(playerY) - camY + 32-8);
+                    }
+                }
+
+                if (justDied && !restarting) {
+                    explosion(playerX, playerY, playerVX, playerVY, 256);
+                    flashT += 1.f;
+                    terrainAdd(EX_BIG, (int)playerX, (int)playerY, 0, -400);
+                    playerDead = true;
+                    playerBombs = 0;
+                    playerFuel = 0.f;
+                    for (int i=0; i<MAX_DEPOT; i++) {
+                        if (depots[i].exists && (sqrt((playerX-depots[i].x)*(playerX-depots[i].x)+(playerY-depots[i].y)*(playerY-depots[i].y)) < 7.f)) {
+                            depots[i].exists = false;
+                            explosion(depots[i].x, depots[i].y, 0.f, 0.f, 128);
+                            flashT += 0.5f;
+                            terrainAdd(EX_BIG, (int)depots[i].x, (int)depots[i].y, 0, -400);
+                        }
+                    }
+                    for (int i=0; i<MAX_BOMB_PICKUP; i++) {
+                        if (bombPickups[i].exists && (sqrt((playerX-bombPickups[i].x)*(playerX-bombPickups[i].x)+(playerY-bombPickups[i].y)*(playerY-bombPickups[i].y)) < 9.f)) {
+                            if (bombPickups[i].available) {
+                                explosion(bombPickups[i].x, bombPickups[i].y, 0.f, 0.f, 256);
+                                flashT += 0.5f;
+                                terrainAdd(EX_HUGE, (int)bombPickups[i].x, (int)bombPickups[i].y, 0, -400);
+                            }
+                            bombPickups[i].exists = false;
+                        }
+                    }
+                    if (sqrt((playerX-flagX)*(playerX-flagX)+(playerY-flagY)*(playerY-flagY)) < 11.f) {
+                        flagVis = false;
+                    }
+                }
+                else if (landed && sqrt((playerX-flagX)*(playerX-flagX)+(playerY-flagY)*(playerY-flagY)) < 7.f) {
+                    flagH += dt * 0.5f;
+                    beatLevel = true;
+                }
+                else {
+                    flagH -= dt * 0.5f;
+                    if (flagH < 0.f) {
+                        flagH = 0.f;
+                    }
+                }
+
+                if (landed) {
+                    for (int i=0; i<MAX_DEPOT; i++) {
+                        if (depots[i].exists && sqrt((playerX-depots[i].x)*(playerX-depots[i].x)+(playerY-depots[i].y)*(playerY-depots[i].y)) < 7.f) {
+                            float take = MIN(depots[i].fuel, MIN(dt / 3.f, 1.f - playerFuel));
+                            if (take > 0.f) {
+                                depots[i].fuel -= take;
+                                playerFuel += take;
+                                if (playerFuel > 1.f) {
+                                    playerFuel = 1.f;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                for (int i=0; i<MAX_BOMB_PICKUP; i++) {
+                    if (bombPickups[i].exists && ((playerX-bombPickups[i].x)*(playerX-bombPickups[i].x)+(playerY-bombPickups[i].y)*(playerY-bombPickups[i].y)) < 9.f) {
+                        if (bombPickups[i].available) {
+                            playerBombs += 1;
+                            bombPickups[i].available = false;
+                        }
+                    }
                 }
             }
-        }
 
-        for (int i=0; i<playerBombs; i++) {
-            drawSpr(BOMB_HUD_FRAMES[(int)(time) & 1], 2 + i * 5, 9);
-        }
-
-        if (flagH > 0.5f) {
-            if (flagH > 1.f) {
-                drawBox(0, 0, 64, 64, 0xFF000000);
-                initLevel(MIN(curLevel + 1, N_LEVELS));
-                restarting = true;
-                restartT = 1.f;
-                starting = true;
+            if (flashT > 0.01f) {
+                flashT -= flashT * dt * 2.f;
+                drawBox(0, 0, 64, 64, 0xFFFFFF | (CLAMP((uint32_t)(flashT * 255.f), 0, 255) << 24u));
             }
             else {
-                drawNotCircle(32, 32, (int)(48.f - CLAMP((flagH*2.f - 1.f) * 48.f, 0., 48.f)), 0xFF000000);
+                flashT = 0.f;
             }
-        }
 
-        if (restarting) {
-            if (restartT > 1.f && !starting) {
-                restartT = 1.f;
-                drawBox(0, 0, 64, 64, 0xFF000000);
-                starting = true;
-                initLevel(curLevel);
-            }
-            else {
-                drawNotCircle(32, 32, (int)(48.f - CLAMP(restartT * 48.f, 0., 48.f)), 0xFF000000);
-            }
-            if (starting) {
-                restartT -= dt;
-                if (restartT < 0.f) {
-                    restarting = false;
-                    starting = false;
+            if (waterLogged > 0.75f && !playerDead) {
+                playerFuel -= waterLogged * 2.0f * dt;
+                if (playerFuel < 0.f) {
+                    playerFuel = 0.f;
                 }
             }
-            else {
-                restartT += dt;
+
+            drawSpr(FUEL_BAR_BG, 0, 0);
+            drawSpr(SPR_X(FUEL_BAR), SPR_Y(FUEL_BAR), CLAMP(SPR_W(FUEL_BAR) * (int)(255.f * playerFuel) / 255, 0, SPR_W(FUEL_BAR)), SPR_H(FUEL_BAR), 3, 3);
+
+            if (!playerDead) {
+                waterLogged += waterPercentInRadius(playerX, playerY, 3.f) * dt * 2.f;
+                if (waterLogged > 1.f) {
+                    waterLogged = 1.f;
+                }
+            }
+
+            if (waterLogged > 0.f || curLevel >= 4) {
+                drawSpr(WATER_BAR_BG, 0, 55);
+                drawSpr(SPR_X(WATER_BAR), SPR_Y(WATER_BAR), CLAMP(SPR_W(WATER_BAR) * (int)(255.f * waterLogged) / 255, 0, SPR_W(WATER_BAR)), SPR_H(WATER_BAR), 3, 55 + 3);
+                if (!playerDead) {
+                    waterLogged -= dt * 1.f;
+                    if (waterLogged < 0.f) {
+                        waterLogged = 0.f;
+                    }
+                }
+            }
+
+            for (int i=0; i<playerBombs; i++) {
+                drawSpr(BOMB_HUD_FRAMES[(int)(time) & 1], 2 + i * 5, 9);
+            }
+
+            if (flagH > 0.5f) {
+                if (flagH > 1.f) {
+                    drawBox(0, 0, 64, 64, 0xFF000000);
+                    initLevel(MIN(curLevel + 1, N_LEVELS));
+                    FILE * fh = fopen("save.bin", "wb");
+                    levelsBeat = MAX(levelsBeat, curLevel-1);
+                    if (fh) {
+                        fwrite(&levelsBeat, sizeof(levelsBeat), 1, fh);
+                        fclose(fh);
+                    }
+                    restarting = true;
+                    restartT = 1.f;
+                    starting = true;
+                }
+                else {
+                    drawNotCircle(32, 32, (int)(48.f - CLAMP((flagH*2.f - 1.f) * 48.f, 0., 48.f)), 0xFF000000);
+                }
+            }
+
+            if (restarting) {
+                if (restartT > 1.f && !starting) {
+                    restartT = 1.f;
+                    drawBox(0, 0, 64, 64, 0xFF000000);
+                    starting = true;
+                    if (showLevelSelNext) {
+                        showLevelSelNext = false;
+                        levelSelShowing = true;
+                        levelSelT = 0.f;
+                        levelSelHiding = false;
+                        levelSideHideT = 0.f;
+                    }
+                    else {
+                        initLevel(curLevel);
+                    }
+                }
+                else {
+                    drawNotCircle(32, 32, (int)(48.f - CLAMP(restartT * 48.f, 0., 48.f)), 0xFF000000);
+                }
+                if (starting) {
+                    restartT -= dt;
+                    if (restartT < 0.f) {
+                        restarting = false;
+                        starting = false;
+                    }
+                }
+                else {
+                    restartT += dt;
+                }
             }
         }
 
