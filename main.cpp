@@ -1254,6 +1254,7 @@ int main() {
     engineSfx.setBuffer(sfx[SFX_ENGINE]);
     engineSfx.setLoop(true);
     engineSfx.setVolume(0.f);
+    engineSfx.setPitch(0.65f);
     engineSfx.play();
     Sound warningSfx;
     warningSfx.setBuffer(sfx[SFX_FUEL_WARNING]);
@@ -1324,7 +1325,7 @@ int main() {
         fread(&levelsBeat, sizeof(levelsBeat), 1, fh);
         fclose(fh);
     }
-    curLevel = MIN(levelsBeat, N_LEVELS);
+    curLevel = MAX(1, MIN(levelsBeat, N_LEVELS));
 
     float lastEngineT = 0.f;
     
@@ -1464,8 +1465,10 @@ int main() {
             waterSfx.setVolume(0.);
 
             winGameT += dt / 3.f;
-            drawSpr(WIN_BG, 0, 0);
-            drawNotCircle(32, 32, (int)(CLAMP(winGameT * 48.f, 0., 48.f)), 0xFF000000);
+            drawSpr(INTRO_BG[CLAMP((int)(winGameT * 5.f), 0, 4)], 0, 0);
+            if (winGameT > 1.f) {
+                drawSpr(WIN_BG, (int)CLAMP(64.f * (winGameT-1.f) * 1.75f - 64.f, -64.f, 0.f), 0);
+            }
 
             if (rPressed || upPressed || bombPressed || escPressed) {
                 winGameHiding = true;
