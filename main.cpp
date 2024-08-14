@@ -659,7 +659,7 @@ int curLevel = 1, levelsBeat = 0;
 const int MAX_SOUNDS = 64;
 int soundIdx = 0;
 Sound sounds[MAX_SOUNDS];
-SoundBuffer sfx[8];
+SoundBuffer sfx[63];
 const int SFX_BOMB = 0;
 const int SFX_DIE = 1;
 const int SFX_FUEL = 2;
@@ -668,6 +668,9 @@ const int SFX_SELECT = 4;
 const int SFX_GET_BOMB = 5;
 const int SFX_ENGINE = 6;
 const int SFX_BACK = 7;
+const int SFX_USE_BOMB = 8;
+const int SFX_LAND = 9;
+const int SFX_FUEL_WARNING = 10;
 
 void loadSound(int _sfx, const char * fileName) {
     if (!sfx[_sfx].loadFromFile(fileName)) {
@@ -1230,6 +1233,20 @@ int main() {
     loadSound(SFX_GET_BOMB, "sfx/get-bomb.wav");
     loadSound(SFX_FUEL, "sfx/get-fuel.wav");
     loadSound(SFX_BACK, "sfx/back.wav");
+    loadSound(SFX_USE_BOMB, "sfx/use-bomb.wav");
+    loadSound(SFX_LAND, "sfx/land.wav");
+    loadSound(SFX_FUEL_WARNING, "sfx/fuel-warning.wav");
+
+    Sound engineSfx;
+    engineSfx.setBuffer(sfx[SFX_ENGINE]);
+    engineSfx.setLoop(true);
+    engineSfx.setVolume(0.f);
+    engineSfx.play();
+    Sound warningSfx;
+    warningSfx.setBuffer(sfx[SFX_FUEL_WARNING]);
+    warningSfx.setLoop(true);
+    warningSfx.setVolume(0.f);
+    warningSfx.play();
 
     spritesTex = new Texture();
     if (!spritesTex->loadFromFile("sprites/sprite-sheet.png")) {
@@ -1260,6 +1277,8 @@ int main() {
     bool leftDown = false, rightDown = false, upDown = false, downDown = false, bombDown = false, rDown = false, escDown;
     bool leftPressed = false, rightPressed = false, upPressed = false, downPressed = false, bombPressed = false, rPressed = false, escPressed;
 
+    bool wasLanded = false, wasGearDown = false;
+
     bool restarting = true, starting = true;
     float restartT = 1.f;
     float flashT = 0.f;
@@ -1280,6 +1299,9 @@ int main() {
         fread(&levelsBeat, sizeof(levelsBeat), 1, fh);
         fclose(fh);
     }
+    levelsBeat = 6;
+
+    float lastEngineT = 0.f;
     
     while (window->isOpen()) {
         leftPressed = false; rightPressed = false; upPressed = false; downPressed = false; bombPressed = false; rPressed = false; escPressed = false;
@@ -1375,6 +1397,9 @@ int main() {
 
         if (introShowing) {
 
+            engineSfx.setVolume(0.);
+            warningSfx.setVolume(0.);
+
             introT += dt / 1.75f;
             drawSpr(INTRO_BG[CLAMP((int)(introT * 5.f), 0, 4)], 0, 0);
             if (introT > 1.f) {
@@ -1407,6 +1432,9 @@ int main() {
 
         }
         else if (levelSelShowing) {
+
+            engineSfx.setVolume(0.);
+            warningSfx.setVolume(0.);
 
             levelSelT += dt / 1.75f;
             drawSpr(LEVEL_SEL_BG, 0, 0);
@@ -1504,8 +1532,11 @@ int main() {
 
             drawSpr(LEVEL_BG[curLevel-1], 0, 0);
 
+            lastEngineT -= lastEngineT * dt * 8.f;
+
             if (!playerDead && !restarting) {
                 if (upDown && playerFuel > 0.f) {
+                    lastEngineT = 1.f;
                     float angle = (floorf(playerAngle) / 8.f) * PI * 2.f - PI * 0.5f;
                     playerVX += cos(angle) * dt * PLAYER_THRUST;
                     playerVY += sin(angle) * dt * PLAYER_THRUST;
@@ -1526,6 +1557,10 @@ int main() {
                 playerX += playerVX * dt;
                 playerY += playerVY * dt;
             }
+
+            engineSfx.setVolume(lastEngineT * 100.f);
+            warningSfx.setVolume((playerFuel < 0.25f ? playerFuel < 0.1f ? 0.75 : 0.35 : 0.f) * 100.f);
+            warningSfx.setPitch(playerFuel < 0.25f ? playerFuel < 0.1f ? 1.25 : 1. : 1.f);
 
             int camX = (int)round(playerX),
                 camY = (int)round(playerY);
@@ -1571,6 +1606,10 @@ int main() {
             if (!playerDead) {
                 bool landed = false;
                 bool landingClose = (int)(floor(playerAngle)) == 0 && sprCollideTerrain(SHIP_OFF[0], (int)round(playerX) - 8, (int)round(playerY) - 8 + 3) && !upDown;
+                if (landingClose != wasGearDown) {
+                    playSound(SFX_LAND, 2.0, 0.5);
+                }
+                wasGearDown = landingClose;
                 bool justDied = false;
                 bool bombEx = false;
                 int bombExI = 0;
@@ -1586,6 +1625,7 @@ int main() {
                         drawSpr(BOMB_FRAMES[(int)(time * 3.f) & 1], (int)round(bombs[i].x)-1 - camX + 32, (int)round(bombs[i].y)-2 - camY + 32);
                         if (!bombEx && sprCollideTerrain(BOMB_FRAMES[0], (int)round(bombs[i].x)-1, (int)round(bombs[i].y)-2)) {
                             explosion(bombs[i].x, bombs[i].y, bombs[i].xv, bombs[i].yv, 256);
+                            playSound(SFX_BOMB);
                             flashT += 1.f;
                             terrainAdd(EX_HUGE, (int)bombs[i].x, (int)bombs[i].y, 0, -400);
                             bombs[i].exists = false;
@@ -1628,11 +1668,12 @@ int main() {
                         if (!bombs[i].exists) {
                             bombs[i].exists = true;
                             bombs[i].t = 0.f;
-                            bombs[i].xv = playerVX * 0.5f;
+                            bombs[i].xv = playerVX * 1.0f;
                             bombs[i].yv = playerVY * 2.f;
                             bombs[i].x = playerX;
                             bombs[i].y = playerY;
                             playerBombs -= 1;
+                            playSound(SFX_USE_BOMB);
                             break;
                         }
                     }
@@ -1642,18 +1683,25 @@ int main() {
                     justDied = true;
                 }
 
-                if ((int)(floor(playerAngle)) == 0 && sprCollideTerrain(SHIP_OFF[0], (int)round(playerX) - 8, (int)round(playerY) - 8 + 2) && !upDown ) {
+                if ((int)(floor(playerAngle)) == 0 && sprCollideTerrain(SHIP_OFF[0], (int)round(playerX) - 8, (int)round(playerY) - 8 + 2) && !upDown) {
                     if (fabs(playerVY) > 9.f || fabs(playerVX) > 13.f) {
                         justDied = true;
                         beatLevel = false;
                     }
                     else {
                         landed = true;
+                        if (!wasLanded && landed) {
+                            playSound(SFX_LAND);
+                        }
+                        wasLanded = landed;
                     }
                     playerVX = 0.f;
                     playerVY = 0.f;
                     playerX = round(playerX);
                     playerY = round(playerY);
+                }
+                else {
+                    wasLanded = false;
                 }
                 if (playerX < -5.f || playerY < -5.f || playerX > 516.f || playerY > 516.f) {
                     if (!beatLevel) {
@@ -1681,6 +1729,7 @@ int main() {
                 }
 
                 if (justDied && !restarting) {
+                    playSound(SFX_DIE);
                     explosion(playerX, playerY, playerVX, playerVY, 256);
                     flashT += 1.f;
                     terrainAdd(EX_BIG, (int)playerX, (int)playerY, 0, -400);
@@ -1738,6 +1787,7 @@ int main() {
                 for (int i=0; i<MAX_BOMB_PICKUP; i++) {
                     if (bombPickups[i].exists && ((playerX-bombPickups[i].x)*(playerX-bombPickups[i].x)+(playerY-bombPickups[i].y)*(playerY-bombPickups[i].y)) < 9.f) {
                         if (bombPickups[i].available) {
+                            playSound(SFX_GET_BOMB);
                             playerBombs += 1;
                             bombPickups[i].available = false;
                         }
@@ -1788,6 +1838,7 @@ int main() {
             if (flagH > 0.5f) {
                 if (flagH > 1.f) {
                     drawBox(0, 0, 64, 64, 0xFF000000);
+                    lastEngineT = 0.f;
                     initLevel(MIN(curLevel + 1, N_LEVELS));
                     FILE * fh = fopen("save.bin", "wb");
                     levelsBeat = MAX(levelsBeat, curLevel-1);
@@ -1817,6 +1868,7 @@ int main() {
                         levelSideHideT = 0.f;
                     }
                     else {
+                        lastEngineT = 0.f;
                         initLevel(curLevel);
                     }
                 }
