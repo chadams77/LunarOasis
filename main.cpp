@@ -674,6 +674,7 @@ const int SFX_LAND = 9;
 const int SFX_FUEL_WARNING = 10;
 const int SFX_FLAG = 11;
 const int SFX_WATER = 12;
+const int SFX_MUSIC_1 = 13;
 
 void loadSound(int _sfx, const char * fileName) {
     if (!sfx[_sfx].loadFromFile(fileName)) {
@@ -1241,6 +1242,13 @@ int main() {
     loadSound(SFX_FUEL_WARNING, "sfx/fuel-warning.wav");
     loadSound(SFX_FLAG, "sfx/flag.wav");
     loadSound(SFX_WATER, "sfx/water-loop.wav");
+    loadSound(SFX_MUSIC_1, "sfx/music.wav");
+
+    Sound musicSfx;
+    musicSfx.setBuffer(sfx[SFX_MUSIC_1]);
+    musicSfx.setLoop(true);
+    musicSfx.setVolume(75.f);
+    musicSfx.play();
 
     Sound engineSfx;
     engineSfx.setBuffer(sfx[SFX_ENGINE]);
@@ -1398,14 +1406,14 @@ int main() {
         if (rPressed && !restarting) {
             restarting = true;
             restartT = 0.f;
-            playSound(SFX_BACK);
+            playSound(SFX_BACK, 1.f, 0.2f);
         }
 
         if (escPressed) {
             restarting = true;
             restartT = 0.f;
             showLevelSelNext = true;
-            playSound(SFX_BACK);
+            playSound(SFX_BACK, 1.f, 0.2f);
         }
 
         clearBfr();
@@ -1433,7 +1441,7 @@ int main() {
                 levelSelHiding = false;
                 levelSelT = 0.f;
                 levelSideHideT = 0.f;
-                playSound(SFX_SELECT);
+                playSound(SFX_SELECT, 1.f, 0.2f);
             }
 
             if (escPressed) {
@@ -1465,7 +1473,7 @@ int main() {
                 introHiding = false;
                 introT = 0.f;
                 introHideT = 0.f;
-                playSound(SFX_SELECT);
+                playSound(SFX_SELECT, 1.f, 0.2f);
             }
 
             if (winGameHiding) {
@@ -1517,25 +1525,25 @@ int main() {
             if (rightPressed) {
                 if ((curLevel-1) % 3 < 2) {
                     curLevel += 1;
-                    playSound(SFX_HOVER);
+                    playSound(SFX_HOVER, 1.f, 0.2f);
                 }
             }
             else if (leftPressed) {
                 if ((curLevel-1) % 3 > 0) {
                     curLevel -= 1;
-                    playSound(SFX_HOVER);
+                    playSound(SFX_HOVER, 1.f, 0.2f);
                 }
             }
             else if (upPressed) {
                 if ((curLevel-1)/3 > 0) {
                     curLevel -= 3;
-                    playSound(SFX_HOVER);
+                    playSound(SFX_HOVER, 1.f, 0.2f);
                 }
             }
             else if (downPressed) { 
                 if ((curLevel-1)/3 < ((N_LEVELS-1)/3)) {
                     curLevel += 3;
-                    playSound(SFX_HOVER);
+                    playSound(SFX_HOVER, 1.f, 0.2f);
                 }
             }
 
@@ -1552,12 +1560,12 @@ int main() {
             if (rPressed || bombPressed) {
                 levelSelHiding = true;
                 initLevel(curLevel);
-                playSound(SFX_SELECT);
+                playSound(SFX_SELECT, 1.f, 0.2f);
             }
             if (escPressed) {
                 levelSelHiding = true;
                 levelSelBackNext = true;
-                playSound(SFX_BACK);
+                playSound(SFX_BACK, 1.f, 0.2f);
             }
 
             if (levelSelHiding) {
@@ -1607,7 +1615,7 @@ int main() {
             }
 
             engineSfx.setVolume(lastEngineT * 100.f);
-            warningSfx.setVolume((playerFuel < 0.25f ? playerFuel < 0.1f ? 0.75 : 0.35 : 0.f) * 100.f);
+            warningSfx.setVolume((playerFuel < 0.25f ? playerFuel < 0.1f ? 0.75 : 0.35 : 0.f) * 25.f);
             warningSfx.setPitch(playerFuel < 0.25f ? playerFuel < 0.1f ? 1.25 : 1. : 1.f);
             waterSfx.setVolume(100.f * (curLevel >= 4 ? 0.25f : 0.f));
 
@@ -1743,7 +1751,7 @@ int main() {
                             playSound(SFX_LAND);
                             for (int i=0; i<MAX_DEPOT; i++) {
                                 if (depots[i].exists && sqrt((playerX-depots[i].x)*(playerX-depots[i].x)+(playerY-depots[i].y)*(playerY-depots[i].y)) < 7.f) {
-                                    playSound(SFX_FUEL, 0.5);
+                                    playSound(SFX_FUEL, 0.5, 0.5);
                                     break;
                                 }
                             }
@@ -1859,6 +1867,9 @@ int main() {
             }
             else {
                 flashT = 0.f;
+                if (playerDead) {
+                    restarting = true;
+                }
             }
 
             if (waterLogged > 0.75f && !playerDead) {
