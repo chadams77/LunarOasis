@@ -183,6 +183,7 @@ const uint64_t SHIP_ON[] = {
     SPR(7*16, 4*16, 16, 16)
 };
 const uint64_t SHIP_LANDED = SPR(0*16, 5*16, 16, 16);
+const uint64_t WIN_BG = SPR(864, 0, 64, 64);
 const uint64_t BG_SPR[] = {
     SPR(176, 0, 64, 64),
     SPR(256, 0, 64, 64),
@@ -551,7 +552,7 @@ const uint8_t LEVEL_GRID_5[] = {
 
 const uint64_t LEVEL_BG_6 = BG_SPR[3];
 const int LEVEL_START_X_6 = 3, LEVEL_START_Y_6 = 1;
-//const int LEVEL_START_X_6 = 21, LEVEL_START_Y_6 = 12;
+//const int LEVEL_START_X_6 = 62, LEVEL_START_Y_6 = 59;
 const uint8_t LEVEL_GRID_6[] = {
     1,1,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
     1,1,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
@@ -671,6 +672,8 @@ const int SFX_BACK = 7;
 const int SFX_USE_BOMB = 8;
 const int SFX_LAND = 9;
 const int SFX_FUEL_WARNING = 10;
+const int SFX_FLAG = 11;
+const int SFX_WATER = 12;
 
 void loadSound(int _sfx, const char * fileName) {
     if (!sfx[_sfx].loadFromFile(fileName)) {
@@ -1236,6 +1239,8 @@ int main() {
     loadSound(SFX_USE_BOMB, "sfx/use-bomb.wav");
     loadSound(SFX_LAND, "sfx/land.wav");
     loadSound(SFX_FUEL_WARNING, "sfx/fuel-warning.wav");
+    loadSound(SFX_FLAG, "sfx/flag.wav");
+    loadSound(SFX_WATER, "sfx/water-loop.wav");
 
     Sound engineSfx;
     engineSfx.setBuffer(sfx[SFX_ENGINE]);
@@ -1247,6 +1252,12 @@ int main() {
     warningSfx.setLoop(true);
     warningSfx.setVolume(0.f);
     warningSfx.play();
+    Sound waterSfx;
+    waterSfx.setBuffer(sfx[SFX_WATER]);
+    waterSfx.setLoop(true);
+    waterSfx.setVolume(0.f);
+    waterSfx.play();
+    double waterSfxV = 0.f;
 
     spritesTex = new Texture();
     if (!spritesTex->loadFromFile("sprites/sprite-sheet.png")) {
@@ -1294,12 +1305,18 @@ int main() {
     float levelSideHideT = 0.f;
     bool showLevelSelNext = false, levelSelBackNext = false;
 
+    bool winGameShowing = false;
+    bool winGameHiding = false;
+    float winGameT = 0.f;
+    float winGimeHideT = 0.f;
+    bool winGameNext = false;
+
     FILE * fh = fopen("save.bin", "rb");
     if (fh) {
         fread(&levelsBeat, sizeof(levelsBeat), 1, fh);
         fclose(fh);
     }
-    levelsBeat = 6;
+    curLevel = MIN(levelsBeat, N_LEVELS);
 
     float lastEngineT = 0.f;
     
@@ -1399,6 +1416,7 @@ int main() {
 
             engineSfx.setVolume(0.);
             warningSfx.setVolume(0.);
+            waterSfx.setVolume(0.);
 
             introT += dt / 1.75f;
             drawSpr(INTRO_BG[CLAMP((int)(introT * 5.f), 0, 4)], 0, 0);
@@ -1431,10 +1449,40 @@ int main() {
             }
 
         }
+        else if (winGameShowing) {
+
+            engineSfx.setVolume(0.);
+            warningSfx.setVolume(0.);
+            waterSfx.setVolume(0.);
+
+            winGameT += dt / 3.f;
+            drawSpr(WIN_BG, 0, 0);
+            drawNotCircle(32, 32, (int)(CLAMP(winGameT * 48.f, 0., 48.f)), 0xFF000000);
+
+            if (rPressed || upPressed || bombPressed || escPressed) {
+                winGameHiding = true;
+                introShowing = false;
+                introHiding = false;
+                introT = 0.f;
+                introHideT = 0.f;
+                playSound(SFX_SELECT);
+            }
+
+            if (winGameHiding) {
+                winGimeHideT += dt;
+                drawNotCircle(32, 32, (int)(48.f - CLAMP(winGimeHideT * 48.f, 0., 48.f)), 0xFF000000);
+                if (winGimeHideT > 1.f) {
+                    winGameShowing = false;
+                    introShowing = true;
+                }
+            }
+
+        }
         else if (levelSelShowing) {
 
             engineSfx.setVolume(0.);
             warningSfx.setVolume(0.);
+            waterSfx.setVolume(0.);
 
             levelSelT += dt / 1.75f;
             drawSpr(LEVEL_SEL_BG, 0, 0);
@@ -1561,6 +1609,7 @@ int main() {
             engineSfx.setVolume(lastEngineT * 100.f);
             warningSfx.setVolume((playerFuel < 0.25f ? playerFuel < 0.1f ? 0.75 : 0.35 : 0.f) * 100.f);
             warningSfx.setPitch(playerFuel < 0.25f ? playerFuel < 0.1f ? 1.25 : 1. : 1.f);
+            waterSfx.setVolume(100.f * (curLevel >= 4 ? 0.25f : 0.f));
 
             int camX = (int)round(playerX),
                 camY = (int)round(playerY);
@@ -1692,6 +1741,15 @@ int main() {
                         landed = true;
                         if (!wasLanded && landed) {
                             playSound(SFX_LAND);
+                            for (int i=0; i<MAX_DEPOT; i++) {
+                                if (depots[i].exists && sqrt((playerX-depots[i].x)*(playerX-depots[i].x)+(playerY-depots[i].y)*(playerY-depots[i].y)) < 7.f) {
+                                    playSound(SFX_FUEL, 0.5);
+                                    break;
+                                }
+                            }
+                            if (sqrt((playerX-flagX)*(playerX-flagX)+(playerY-flagY)*(playerY-flagY)) < 7.f) {
+                                playSound(SFX_FUEL, 0.75);
+                            }
                         }
                         wasLanded = landed;
                     }
@@ -1714,7 +1772,7 @@ int main() {
                     }
                 }
 
-                if (upDown && playerFuel > 0.f && !restarting) {
+                if (upDown && playerFuel > 0.f && !restarting && flagH < 0.5f) {
                     drawSpr(SHIP_ON[(int)(floor(playerAngle))], (int)round(playerX) - camX + 32-8, (int)round(playerY) - camY + 32-8);
                     float angle = (floorf(playerAngle) / 8.f) * PI * 2.f + PI * 0.5f;
                     addFire(playerX + cos(angle) * 3.5f, playerY + sin(angle) * 3.5f, cos(angle) * 20.f, sin(angle) * 20.f);
@@ -1839,6 +1897,13 @@ int main() {
                 if (flagH > 1.f) {
                     drawBox(0, 0, 64, 64, 0xFF000000);
                     lastEngineT = 0.f;
+                    if (curLevel >= N_LEVELS) {
+                        winGameShowing = true;
+                        winGameHiding = false;
+                        winGameT = 0.f;
+                        winGimeHideT = 0.f;
+                        winGameNext = false;
+                    }
                     initLevel(MIN(curLevel + 1, N_LEVELS));
                     FILE * fh = fopen("save.bin", "wb");
                     levelsBeat = MAX(levelsBeat, curLevel-1);
@@ -1849,6 +1914,7 @@ int main() {
                     restarting = true;
                     restartT = 1.f;
                     starting = true;
+                    playSound(SFX_FLAG);
                 }
                 else {
                     drawNotCircle(32, 32, (int)(48.f - CLAMP((flagH*2.f - 1.f) * 48.f, 0., 48.f)), 0xFF000000);
